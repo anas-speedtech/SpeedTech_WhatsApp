@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panel</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="splash">
+  <div class="ring-wrap">
+    <div class="ring"></div>
+    <img class="ring-mark" src="logo.png" alt="">
+  </div>
+  <div class="splash-msg err" id="splash-msg"></div>
+  <button id="splash-retry" class="btn hidden" type="button">Retry</button>
+</div>
+<div id="auth" class="auth hidden">
+  <div class="auth-card">
+    <div class="brand"><img class="logo" src="logo.png" alt=""><span class="brand-name">Brand</span></div>
+    <h1 id="auth-title">Sign in</h1>
+    <input id="a-name" placeholder="Full name" class="reg">
+    <input id="a-email" placeholder="Email" type="email">
+    <input id="a-pass" placeholder="Password" type="password">
+    <select id="a-role" class="reg"><option value="user">I want to buy (user)</option><option value="reseller">I am a reseller</option></select>
+    <input id="a-code" placeholder="Reseller code" class="reg user-only">
+    <input id="a-phone" placeholder="Phone with country code (e.g. +919876543210)" class="reg user-only">
+    <input id="a-signup" placeholder="Reseller signup code" class="reg reseller-only">
+    <p id="a-err" class="err"></p>
+    <button id="a-go" class="btn">Sign in</button>
+    <button id="a-toggle" class="link">New here? Create an account</button>
+  </div>
+</div>
+
+<div id="app" class="app hidden">
+  <aside id="side">
+    <div class="brand"><img class="logo" src="logo.png" alt=""><span class="brand-name">Brand</span></div>
+    <nav id="nav"></nav>
+    <div class="me"><div><strong id="me-name"></strong><small id="me-role"></small></div><button id="logout" class="link">Log out</button></div>
+  </aside>
+  <main>
+    <header>
+      <div class="head-l"><button id="side-toggle" class="icon-btn" type="button" aria-label="Collapse sidebar" title="Collapse sidebar">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.5H17M3 10H17M3 14.5H17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      </button><div class="head-t"><div id="crumbs"></div><h2 id="page-title"></h2></div></div>
+      <div class="credits" id="credits"></div>
+    </header>
+    <section id="view"></section>
+  </main>
+</div>
+<script src="icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
