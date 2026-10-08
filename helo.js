@@ -61,7 +61,18 @@ async function call(method, path, body, auth = true) {
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (e) {
-    throw new Error(`Helo unreachable (${BASE}${path}): ${e.message}`);
+    // Node's fetch buries the underlying error under e.cause. Pull it out so the panel
+    // shows whether the host didn't resolve (ENOTFOUND) or just didn't answer (timeout).
+    const causes = [];
+    let c = e;
+    for (let i = 0; i < 4 && c; i++) {
+      const m = c.code || c.message;
+      if (m && !causes.includes(m)) causes.push(m);
+      c = c.cause;
+    }
+    const detail = causes.join(" <- ") || String(e && e.message || e);
+    const bad = /fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|ECONNRESET|EHOSTUNREACH|EAI_AGAIN|TLS|certificate|getaddrinfo|timeout/i.test(detail);
+    throw new Error(`Helo unreachable (${BASE}${path}): ${bad ? "network error: " : ""}${detail.slice(0, 200)}`);
   }
   // Read the body as text first. When Helo's own app crashes it replies with an HTML
   // stack trace, and json() would swallow it, leaving a useless "Helo 500: {}".
