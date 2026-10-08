@@ -414,7 +414,14 @@ const campaignsListMarkup = (cs) => `<div class="panel"><h3>Your campaigns</h3>$
   "No campaigns yet.")}</div>`;
 
 async function campaigns() {
-  const [cs, ts, us] = await Promise.all([api("/campaigns"), api("/templates"), api("/reseller/users")]);
+  // Templates are the only fetch that depends on Helo being up. If the provider is
+  // unreachable this must not reject, or Promise.all would replace the whole view with a
+  // raw "Helo unreachable" error and the campaign list would be unusable.
+  const [cs, us, heloErr, rawTs] = await Promise.all([
+    api("/campaigns"), api("/reseller/users"),
+    api("/templates").then(() => null, (e) => e.message),
+  ]);
+  const ts = rawTs || [];
   const selectable = us.filter((u) => u.phone);
   const missing = us.length - selectable.length;
   // Helo only accepts APPROVED templates, and needs the category + language with the name
@@ -422,7 +429,8 @@ async function campaigns() {
   const tplLabel = (t) => [tplName(t), tplStatus(t), t.category, t.language].filter(Boolean).join(" · ");
   $("#view").innerHTML = `
     <div class="panel"><h3>New campaign</h3>
-      ${cfg.heloConnected ? "" : "<p class='empty'>Helo API not connected yet — campaigns are simulated.</p>"}
+      ${heloErr ? `<p class="empty">Could not reach Helo to load templates — ${esc(heloErr)}. Campaigns below still show, but nothing can be sent until the API is back.</p>`
+        : cfg.heloConnected ? "" : "<p class='empty'>Helo API not connected yet — campaigns are simulated.</p>"}
       ${!usable.length ? `<p class="empty">No approved templates available. Create and get one approved in Helo first.</p>` : ""}
       <div class="row"><input id="c-name" placeholder="Campaign name">
         <select id="c-tpl">${usable.map((t, i) => `<option value="${i}">${esc(tplLabel(t))}</option>`).join("")}</select></div>
@@ -481,12 +489,16 @@ async function campaigns() {
 }
 
 async function templates() {
-  const ts = await api("/templates");
+  let ts = [];
+  let err = null;
+  try { ts = await api("/templates"); } catch (e) { err = e.message; }
   $("#view").innerHTML = `
     <div class="panel"><h3>Your templates</h3>
-      <p class="empty">${cfg.heloConnected
-        ? "Templates are read from your Helo business account."
-        : "Helo is not connected yet, so this is a placeholder list. Connect the Helo API (helo.js) to load your real approved templates."}</p>
+      <p class="empty">${err
+        ? `Could not reach Helo to load templates — ${esc(err)}`
+        : cfg.heloConnected
+          ? "Templates are read from your Helo business account."
+          : "Helo is not connected yet, so this is a placeholder list. Connect the Helo API (helo.js) to load your real approved templates."}</p>
       ${list(ts, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
         <small>${esc(tplStatus(t) || "Approved")}</small></div>
         <span class="tag">${esc(tplStatus(t) || "ready")}</span></div>`, "No templates available.")}</div>
