@@ -4,10 +4,13 @@
 // overwrite data/db.json on its next write.
 const fs = require("fs");
 const path = require("path");
+const billing = require("./billing");
 
 const DB_FILE = path.join(__dirname, "data", "db.json");
 const db = JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
 let changed = 0;
+let nid = db.nextId;
+const nextId = () => nid++;
 
 // products: credit packs -> catalogue items with an image
 for (const p of db.products) {
@@ -42,8 +45,13 @@ for (const c of db.campaigns) {
   if (typeof c.rejected !== "number") { c.rejected = 0; changed++; }
 }
 
+// billing: pricing, plans, requests, ledger, and the user fields the dashboard reads
+changed += billing.ensureBilling(db, nextId);
+db.nextId = nid;
+
 fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 console.log(`migration done: ${changed} field(s) updated`);
 console.log(`  products ${db.products.length}, orders ${db.orders.length}, users ${db.users.length}, campaigns ${db.campaigns.length}`);
+console.log(`  settings buy ${billing.perCredit(db.settings.creditBuyPricePaise)}/credit, sell ${billing.perCredit(db.settings.creditSellPricePaise)}/credit, plans ${db.plans.length}, requests ${db.requests.length}, txns ${db.txns.length}`);
 const noPhone = db.users.filter((u) => u.role === "user" && !u.phone).map((u) => u.email);
 if (noPhone.length) console.log(`  buyers with no phone yet (cannot be campaign targets): ${noPhone.join(", ")}`);

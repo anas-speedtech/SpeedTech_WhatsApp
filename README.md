@@ -17,6 +17,36 @@ Credits are spent **1 per WhatsApp recipient** and are deducted server-side. A r
 target buyers linked to their own `resellerId`; the request sends user IDs, the server resolves
 them to phone numbers.
 
+## Billing, membership and credits
+
+The platform is a **two-tier** credit business: the admin acquires credits and resellers buy them.
+Prices live in `data/db.json` under `settings` and are stored as **whole paise** (integers) so a
+large campaign never suffers floating-point rounding. `1 credit = 1 WhatsApp message`.
+
+- `creditBuyPricePaise` — what the platform pays per credit. **Admin-only, never sent to a reseller.**
+- `creditSellPricePaise` — what a reseller pays. Defaults are ₹0.90 buy / ₹1.00 sell (a ₹0.10 margin).
+- `requireMembership` — when true (default), a reseller with no active plan cannot send.
+
+Membership plans (`plans[]`) are editable by the admin and express a duration in **months** and a
+`pricePaise`. A reseller's state is derived from their stored `planExpiresAt`: `active`, `expired`
+or `none`. Both `expired` and `none` block sends while `requireMembership` is on.
+
+Payment is **self-hosted UPI, no gateway account**. A reseller presses **Buy** on credits or a plan,
+which opens a checkout sheet with a scannable UPI QR and a `upi://` deep link (built from `UPI_VPA`
+in `.env`). On confirmation the purchase **auto-settles**: credits are added or the membership is
+extended immediately, and the UPI reference is written to the ledger (`txns[]`) and the request
+history so the platform owner can reconcile it. With `UPI_VPA` blank the sheet runs in simulated
+mode — no QR or link, but the flow and records still work. The older request→approval engine
+(`requests[]`, acted on from **Payments**) is kept for settling payments made off-platform.
+
+Every movement lands in the ledger (`txns[]`) with the credit count, the `amountPaise` at the sell
+rate and a `costPaise` basis at the buy rate, so margin is recoverable. Reseller-facing responses
+never include the buy price or another reseller's ledger.
+
+Pages: the admin configures prices and plans under **Pricing** and reconciles purchases under
+**Payments**; a reseller buys credits and renews their plan under **Wallet**, and their **Dashboard**
+shows channel tabs, the stat cards and a searchable user table.
+
 ## Run
 
 1. `npm install`
@@ -36,9 +66,9 @@ to an icon-only rail from the button in the page header.
 
 | Role | Sections and pages |
 | --- | --- |
-| Reseller | **Broadcast** (Campaigns, Governance), **Analyse** (Dashboard, Reports), **Store** (Products, Customers), Orders, Templates, Shortlinks, Settings, Developers |
+| Reseller | **Broadcast** (Campaigns, Governance), **Analyse** (Dashboard, Reports), **Store** (Products, Customers), Orders, Wallet, Templates, Shortlinks, Settings, Developers |
 | Buyer | Dashboard, **Store** (Products), Orders, Templates, Shortlinks, Settings |
-| Admin | Dashboard, Resellers, Orders, Settings |
+| Admin | Dashboard, Resellers, Orders, Payments, Pricing, Settings |
 
 `public/icons.js` holds the icon set. The Broadcast, Analyse, Templates, Flows, Shortlinks, Settings
 and Developers glyphs are Helo's own SVGs, lifted from their sidebar so the panel matches; the
@@ -61,7 +91,11 @@ JPG/PNG/WebP/GIF up to 5MB; anything else is ignored rather than stored. Files l
   DB in memory and will overwrite external changes on the next save.
 
 `migrate.js` is idempotent and safe to re-run; it backfills reseller codes, product image fields,
-order status, and the campaign-history shape. Run it after pulling changes to an existing DB.
+order status, the campaign-history shape, and the billing collections (`settings`, `plans`,
+`requests`, `txns`) plus the per-user billing fields. It grandfathers resellers that predate billing
+with a working membership so nothing silently stops sending; that backfill runs once, tracked by
+`settings.billingMigrated`, so a reseller who registers later is never comped. Run it after pulling
+changes to an existing DB.
 
 ## Reseller codes
 
@@ -136,5 +170,8 @@ first — `data/db.json` is held in memory and would be overwritten.
 ## Not built yet
 
 Shortlinks, Governance, Analyse and the public API are placeholders. Delivered/read/reply rates and
-the reports that depend on them need Helo DLR webhooks, which are deliberately phase 2. There is no
-payment gateway: order amounts are recorded and displayed but never charged.
+the reports that depend on them need Helo DLR webhooks, which are deliberately phase 2. Payment is
+self-hosted UPI only (see **Billing, membership and credits**): there is no card gateway and no PSP
+webhook, so a UPI purchase is trusted from the reseller's own confirmation and reconciled by its
+reference. Assigning credits down to individual buyers and letting buyers send their own campaigns
+is a later phase — user credit balances read 0.

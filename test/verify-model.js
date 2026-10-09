@@ -183,6 +183,15 @@ async function upload(p, method, fields, token, file) {
   const adminOrders = await call("/api/orders", "GET", null, A);
   ok("admin sees every order in the database", adminOrders.data.length === 2, adminOrders.data.length);
 
+  // ---------- membership is required to send ----------
+  const plans = (await call("/api/pricing", "GET", null, T1)).data.plans;
+  const mreq = await call("/api/reseller/requests", "POST", { kind: "membership", planId: plans[0].id }, T1);
+  ok("reseller requests a membership plan", mreq.status === 200 && mreq.data.kind === "membership", mreq.data);
+  const mapp = await call("/api/admin/requests/" + mreq.data.id + "/approve", "POST", {}, A);
+  ok("admin approves the membership, activating it", mapp.status === 200 && mapp.data.status === "approved", mapp.data);
+  const mstate = await call("/api/me", "GET", null, T1);
+  ok("reseller membership is now active", mstate.data.membership && mstate.data.membership.state === "active", mstate.data.membership);
+
   // ---------- campaigns: reseller only, own buyers only ----------
   const buyerCamp = await call("/api/campaigns", "GET", null, B1);
   ok("buyer cannot list campaigns (403)", buyerCamp.status === 403, buyerCamp);

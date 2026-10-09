@@ -1,6 +1,6 @@
 const $ = (s) => document.querySelector(s);
 let token = localStorage.getItem("token"), me = null, cfg = {}, mode = "login";
-let editingProduct = null;
+let editingProduct = null, editingPlan = null;
 
 async function api(path, method = "GET", body) {
   const isForm = body instanceof FormData;
@@ -77,6 +77,7 @@ const NAV = {
       ],
     },
     { label: "Orders", icon: "orders", fn: () => orders("incoming") },
+    { label: "Wallet", icon: "wallet", fn: wallet },
     { label: "Templates", icon: "templates", fn: templates },
     { label: "Shortlinks", icon: "shortlinks", fn: coming("Shortlinks", "Tracked links you can drop into a template to measure clicks. Not built yet (TODO 4).") },
     { label: "Settings", icon: "settings", fn: settings },
@@ -86,6 +87,8 @@ const NAV = {
     { label: "Dashboard", icon: "dashboard", fn: dashboard },
     { label: "Resellers", icon: "store", fn: resellers },
     { label: "Orders", icon: "orders", fn: () => orders("all") },
+    { label: "Payments", icon: "payments", fn: payments },
+    { label: "Pricing", icon: "settings", fn: pricing },
     { label: "Settings", icon: "settings", fn: settings },
   ],
 };
@@ -235,6 +238,9 @@ function showCredits() {
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const list = (items, fn, empty) => items.length ? items.map(fn).join("") : `<p class="empty">${empty}</p>`;
 const money = (n) => `₹${Number(n || 0).toLocaleString("en-IN")}`;
+// prices are stored as whole paise so nothing rounds wrong; only the view divides by 100
+const rupees = (paise) => `₹${(Number(paise || 0) / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const channelTag = (c) => `<span class="tag ${c === "WhatsApp" ? "whatsapp" : c === "SMS" ? "sms" : "rcs"}">${esc(c)}</span>`;
 // lowercased and hyphenated so a status like "In-Draft" maps onto a real css class
 const statusTag = (s) => `<span class="tag ${esc(String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, "-"))}">${esc(s)}</span>`;
 const card = (n, label) => `<div class="stat"><b>${n}</b><span>${label}</span></div>`;
@@ -254,35 +260,19 @@ const productForm = (p) => {
 // ---------- dashboards ----------
 async function dashboard() {
   if (me.role === "admin") return adminDashboard();
-  if (me.role === "reseller") {
-    const [cs, os] = await Promise.all([api("/campaigns"), api("/orders")]);
-    const reached = cs.reduce((n, c) => n + c.total, 0);
-    const live = os.filter((o) => o.status !== "cancelled");
-    $("#view").innerHTML = `
-      <div class="stats">
-        ${card(me.credits, "Campaign credits")}
-        ${card(cs.length, "Campaigns sent")}
-        ${card(reached, "Recipients reached")}
-        ${card(money(live.reduce((n, o) => n + o.amount, 0)), "Order revenue")}
-      </div>
-      ${os.some((o) => o.status === "pending") ? `<div class="panel"><p>${os.filter((o) => o.status === "pending").length} order(s) waiting. <button class="link" data-go="Orders">Review them</button>.</p></div>` : ""}
-      <div class="panel"><h3>Recent campaigns</h3>${list(cs.slice(0, 5), (c) =>
-        `<div class="item"><div><strong>${esc(c.name)}</strong><small>${esc(c.templateName)} · ${c.total} recipients · ${new Date(c.at).toLocaleDateString()}</small></div><span class="tag">${esc(c.status)}</span></div>`,
-        "No campaigns yet. <button class='link' data-go='Campaigns'>Send your first one</button>.")}</div>`;
-  } else {
-    const [ps, os] = await Promise.all([api("/products"), api("/orders")]);
-    const live = os.filter((o) => o.status !== "cancelled");
-    $("#view").innerHTML = `
-      <div class="stats">
-        ${card(ps.length, "Products available")}
-        ${card(os.length, "Orders placed")}
-        ${card(money(live.reduce((n, o) => n + o.amount, 0)), "Total spent")}
-        ${card(me.resellerCode || "-", "Your reseller")}
-      </div>
-      <div class="panel"><h3>Recent orders</h3>${list(os.slice(0, 5), (o) =>
-        `<div class="item"><div><strong>${esc(o.productName || "Product")}</strong><small>${new Date(o.at).toLocaleDateString()}</small></div>${statusTag(o.status)}</div>`,
-        "No orders yet. <button class='link' data-go='Products'>Browse products</button>.")}</div>`;
-  }
+  if (me.role === "reseller") return resellerDashboard();
+  const [ps, os] = await Promise.all([api("/products"), api("/orders")]);
+  const live = os.filter((o) => o.status !== "cancelled");
+  $("#view").innerHTML = `
+    <div class="stats">
+      ${card(ps.length, "Products available")}
+      ${card(os.length, "Orders placed")}
+      ${card(money(live.reduce((n, o) => n + o.amount, 0)), "Total spent")}
+      ${card(me.resellerCode || "-", "Your reseller")}
+    </div>
+    <div class="panel"><h3>Recent orders</h3>${list(os.slice(0, 5), (o) =>
+      `<div class="item"><div><strong>${esc(o.productName || "Product")}</strong><small>${new Date(o.at).toLocaleDateString()}</small></div>${statusTag(o.status)}</div>`,
+      "No orders yet. <button class='link' data-go='Products'>Browse products</button>.")}</div>`;
   document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
 }
 async function adminDashboard() {
@@ -300,6 +290,53 @@ async function adminDashboard() {
         <div class="row-inline"><span class="tag">${r.credits} credits</span><button class="btn" data-go="Resellers">Manage</button></div></div>`,
       "No resellers yet.")}</div>`;
   document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
+}
+
+// ---------- reseller dashboard: channel tabs, stat cards and the user table ----------
+let dashChannel = "WhatsApp";
+const CHANNELS = ["WhatsApp", "SMS", "RCS"];
+async function resellerDashboard() {
+  const [stats, us] = await Promise.all([api("/reseller/stats"), api("/reseller/users")]);
+  const isWA = dashChannel === "WhatsApp";
+  const rows = us.map((u) => ({ ...u, channel: "WhatsApp", credits: u.credits || 0 }));
+  $("#view").innerHTML = `
+    <div class="tabs">${CHANNELS.map((c) => `<button class="tab${c === dashChannel ? " on" : ""}" data-tab="${c}">${c}</button>`).join("")}</div>
+    <div class="stats">
+      ${card(stats.users, "Total users")}
+      ${card(stats.active, "Active users")}
+      ${card(stats.inactive, "Inactive users")}
+      ${card(me.credits, "Wallet credits")}
+      ${card(stats.creditsUsedReseller, "Credits used")}
+      ${card(stats.creditsPurchased + stats.creditsAssignedReseller, "Credits purchased")}
+    </div>
+    ${!isWA ? `<div class="panel"><h3>${dashChannel} campaigns</h3><p class="empty">${dashChannel} is not enabled on this account yet — only WhatsApp is live. Nothing to show here for now.</p></div>` : `
+    <div class="panel"><h3>Your users</h3>
+      <div class="row"><input id="u-q" placeholder="Search name, email or phone"><select id="u-status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+      <div id="u-table"></div>
+      <p class="empty">Credits are assigned to your buyers in an upcoming release, so user credits read 0 for now.</p>
+    </div>`}`;
+  document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { dashChannel = b.dataset.tab; resellerDashboard(); }));
+  if (!isWA) return;
+  const draw = () => {
+    const q = $("#u-q").value.trim().toLowerCase();
+    const st = $("#u-status").value;
+    const byStatus = (u) => st === "active" ? u.active !== false : st === "inactive" ? u.active === false : true;
+    const shown = rows.filter((u) => byStatus(u) && (!q || [u.name, u.email, u.phone].join(" ").toLowerCase().includes(q)));
+    $("#u-table").innerHTML = `<div class="table">
+      <div class="thead"><span>ID</span><span>Name</span><span>Contact</span><span>Status</span><span>Channel</span><span>Credits</span><span>Joined</span></div>
+      ${shown.length ? shown.map((u) => `<div class="trow">
+        <span>#${u.id}</span>
+        <span><strong>${esc(u.name)}</strong></span>
+        <span><small>${esc(u.email)}${u.phone ? " · " + esc(u.phone) : " · no phone"}</small></span>
+        <span>${u.active === false ? `<span class="tag cancelled">Inactive</span>` : `<span class="tag fulfilled">Active</span>`}</span>
+        <span>${channelTag(u.channel)}</span>
+        <span>${u.credits}</span>
+        <span><small>${u.onboardedAt ? new Date(u.onboardedAt).toLocaleDateString() : "-"}</small></span>
+      </div>`).join("") : `<p class="empty">No users match.</p>`}</div>`;
+  };
+  $("#u-q").oninput = draw;
+  $("#u-status").onchange = draw;
+  draw();
 }
 
 // ---------- buyer: shop + orders ----------
@@ -396,10 +433,27 @@ async function customers() {
   const missing = us.filter((u) => !u.phone).length;
   $("#view").innerHTML = `<div class="panel">
     <p>Share your code <strong>${esc(me.resellerCode)}</strong> so customers can sign up under you.</p>
-    ${missing ? `<p class="empty">${missing} customer(s) have no phone number, so they can't be campaign targets yet. They can add one from their Settings page.</p>` : ""}
-    ${list(us, (u) => `<div class="item"><div><strong>${esc(u.name)}</strong><small>${esc(u.email)}</small></div>
-      <div class="row-inline"><span class="tag ${u.phone ? "" : "none"}">${u.phone ? esc(u.phone) : "no phone"}</span></div></div>`,
-    "No customers yet.")}</div>`;
+    ${missing ? `<p class="empty">${missing} customer(s) have no phone number, so they can't be campaign targets yet.</p>` : ""}
+    <div class="row"><input id="cu-q" placeholder="Search name, email or phone"><select id="cu-status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+    <div id="cu-table"></div></div>`;
+  const draw = () => {
+    const q = $("#cu-q").value.trim().toLowerCase();
+    const st = $("#cu-status").value;
+    const byStatus = (u) => st === "active" ? u.active !== false : st === "inactive" ? u.active === false : true;
+    const shown = us.filter((u) => byStatus(u) && (!q || [u.name, u.email, u.phone].join(" ").toLowerCase().includes(q)));
+    $("#cu-table").innerHTML = `<div class="table">
+      <div class="thead"><span>ID</span><span>Name</span><span>Contact</span><span>Status</span><span>Channel</span><span>Credits</span><span>Joined</span></div>
+      ${shown.length ? shown.map((u) => `<div class="trow">
+        <span>#${u.id}</span><span><strong>${esc(u.name)}</strong></span>
+        <span><small>${esc(u.email)}${u.phone ? " · " + esc(u.phone) : " · no phone"}</small></span>
+        <span>${u.active === false ? `<span class="tag cancelled">Inactive</span>` : `<span class="tag fulfilled">Active</span>`}</span>
+        <span>${channelTag("WhatsApp")}</span><span>${u.credits || 0}</span>
+        <span><small>${u.onboardedAt ? new Date(u.onboardedAt).toLocaleDateString() : "-"}</small></span></div>`).join("")
+        : `<p class="empty">No customers match.</p>`}</div>`;
+  };
+  $("#cu-q").oninput = draw;
+  $("#cu-status").onchange = draw;
+  draw();
 }
 
 // The campaign list is also repainted on its own while a background send is running,
@@ -548,16 +602,31 @@ async function developers() {
 
 async function resellers() {
   const rs = await api("/admin/resellers");
+  const mTag = (m) => m && m.state === "active" ? `<span class="tag fulfilled">Active</span>`
+    : m && m.state === "expired" ? `<span class="tag cancelled">Expired</span>` : `<span class="tag none">No plan</span>`;
   $("#view").innerHTML = `<div class="panel"><h3>Resellers</h3>
-    <p class="empty">Credits are spent 1 per WhatsApp recipient. Add credits here to let a reseller run campaigns.</p>
-    ${list(rs, (r) => `<div class="item">
-      <div><strong>${esc(r.name)}</strong><small>${esc(r.email)} · code ${esc(r.resellerCode || "-")} · ${r.customers} customers · ${r.campaigns} campaigns</small></div>
-      <div class="row-inline"><span class="tag">${r.credits} credits</span><span class="tag">${money(r.revenue)}</span>
+    <p class="empty">Credits are spent 1 per WhatsApp recipient. Approve purchases from the Payments page, or grant credits here directly.</p>
+    <div class="row"><input id="r-q" placeholder="Search name, email or code"><select id="r-status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+    <div id="r-list"></div>
+    <p id="p-err" class="err"></p></div>`;
+  const draw = () => {
+    const q = $("#r-q").value.trim().toLowerCase();
+    const st = $("#r-status").value;
+    const byStatus = (r) => st === "active" ? r.active !== false : st === "inactive" ? r.active === false : true;
+    const shown = rs.filter((r) => byStatus(r) && (!q || [r.name, r.email, r.resellerCode].join(" ").toLowerCase().includes(q)));
+    $("#r-list").innerHTML = list(shown, (r) => `<div class="item">
+      <div><strong>${esc(r.name)}</strong><small>${esc(r.email)} · code ${esc(r.resellerCode || "-")} · ${r.customers} customers · ${r.campaigns} campaigns</small>
+        <small>${r.creditsPurchased} bought · ${r.creditsAssigned} granted · ${r.creditsUsed} used</small></div>
+      <div class="row-inline">
+        <span class="tag">${r.credits} credits</span>
+        ${mTag(r.membership)}
+        <span class="tag">${money(r.revenue)}</span>
         <input class="mini" type="number" id="amt-${r.id}" placeholder="100" min="-999999">
         <button class="btn" data-add="${r.id}">Add</button>
-        <button class="btn ghost" data-sub="${r.id}">Remove</button></div></div>`,
-    "No resellers yet.")}</div>
-    <p id="p-err" class="err"></p>`;
+        <button class="btn ghost" data-sub="${r.id}">Remove</button></div></div>`, "No resellers match.");
+    document.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => grant(b.dataset.add, 1)));
+    document.querySelectorAll("[data-sub]").forEach((b) => (b.onclick = () => grant(b.dataset.sub, -1)));
+  };
   const grant = async (id, sign) => {
     const raw = $(`#amt-${id}`).value.trim();
     const n = Number(raw);
@@ -566,8 +635,180 @@ async function resellers() {
     try { await api("/admin/resellers/" + id + "/credits", "POST", { amount: sign * Math.abs(n) }); resellers(); }
     catch (e) { $("#p-err").textContent = e.message; }
   };
-  document.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => grant(b.dataset.add, 1)));
-  document.querySelectorAll("[data-sub]").forEach((b) => (b.onclick = () => grant(b.dataset.sub, -1)));
+  $("#r-q").oninput = draw;
+  $("#r-status").onchange = draw;
+  draw();
+}
+
+// ---------- reseller wallet: buy credits, renew membership, see the ledger ----------
+async function wallet() {
+  const [pricing, reqs, txns] = await Promise.all([api("/pricing"), api("/reseller/requests"), api("/reseller/txns")]);
+  const m = me.membership || { state: "none" };
+  const plan = pricing.plans.find((p) => p.id === m.planId);
+  const sell = pricing.creditSellPricePaise;
+  const daysLeft = m.state === "active" ? Math.max(0, Math.ceil((Date.parse(m.expiresAt) - Date.now()) / 86400000)) : 0;
+  const mTag = m.state === "active" ? `<span class="tag fulfilled">Active until ${new Date(m.expiresAt).toLocaleDateString()}</span>`
+    : m.state === "expired" ? `<span class="tag cancelled">Expired</span>` : `<span class="tag none">No plan</span>`;
+  const signed = (t) => t.toId === me.id ? `+${t.credits}` : `-${t.credits}`;
+  $("#view").innerHTML = `
+    <div class="stats">
+      ${card(me.credits, "Credit balance")}
+      ${card(rupees(sell), "Price per credit")}
+      ${card(rupees(me.credits * sell), "Balance value")}
+      ${card(daysLeft, "Membership days left")}
+    </div>
+    <div class="panel"><h3>Your membership</h3>
+      <div class="item"><div><strong>${plan ? esc(plan.name) : "No plan selected"}</strong>
+        <small>An active membership is required before a campaign can be sent.</small></div>${mTag}</div>
+    </div>
+    <div class="panel"><h3>Buy credits</h3>
+      <p class="empty">1 credit = 1 WhatsApp message. Pay by UPI and your balance is credited instantly.</p>
+      <div class="calc">
+        <label>Credits <input id="w-qty" type="number" min="1" step="1" value="1000"></label>
+        <div class="calc-out"><small>You pay</small><b id="w-cost">${rupees(1000 * sell)}</b></div>
+      </div>
+      <p id="w-err" class="err"></p>
+      <button id="w-buy" class="btn">Buy credits</button>
+    </div>
+    <div class="panel"><h3>Membership plans</h3>
+      ${list(pricing.plans, (p) => `<div class="item"><div><strong>${esc(p.name)}</strong><small>${p.months} month${p.months > 1 ? "s" : ""}</small></div>
+        <div class="row-inline"><span class="tag">${rupees(p.pricePaise)}</span>
+        <button class="btn ghost" data-plan="${p.id}">Buy</button></div></div>`,
+      "No plans available yet.")}
+    </div>
+    <div class="panel"><h3>Payment history</h3>${list(reqs, (r) => `<div class="item">
+      <div><strong>${r.kind === "credits" ? r.credits + " credits" : (r.plan ? esc(r.plan.name) + " membership" : "Membership")}</strong>
+        <small>${new Date(r.at).toLocaleString()} · ${rupees(r.amountPaise)}${r.method ? " · " + esc(r.method) : ""}${r.note ? " · " + esc(r.note) : ""}</small>
+        ${r.decisionNote ? `<small>${esc(r.decisionNote)}</small>` : ""}</div>
+      ${statusTag(r.status)}</div>`, "Nothing yet.")}</div>
+    <div class="panel"><h3>Credit ledger</h3>${list(txns, (t) => `<div class="item">
+      <div><strong>${esc(t.note || t.type)}</strong><small>${new Date(t.at).toLocaleString()} · ${esc(t.type)}</small></div>
+      <span class="tag ${t.credits > 0 ? "fulfilled" : "none"}">${signed(t)} credits</span></div>`, "Nothing yet.")}</div>`;
+  const qty = () => Math.max(1, Math.floor(Number($("#w-qty").value) || 0));
+  $("#w-qty").oninput = () => { $("#w-cost").textContent = rupees(qty() * sell); };
+  $("#w-buy").onclick = () => openCheckout("credits", { credits: qty() });
+  document.querySelectorAll("[data-plan]").forEach((b) => (b.onclick = () => openCheckout("membership", { planId: +b.dataset.plan })));
+}
+
+// ---------- UPI checkout: quote, scan/pay, confirm -> instant credit ----------
+function closeModal() { const m = $("#modal"); m.innerHTML = ""; m.classList.add("hidden"); }
+async function openCheckout(kind, payload) {
+  const m = $("#modal");
+  m.classList.remove("hidden");
+  m.innerHTML = `<div class="modal-card"><div class="splash-inline">${RING}</div></div>`;
+  let q;
+  try { q = await api("/reseller/checkout/quote", "POST", { kind, ...payload }); }
+  catch (e) {
+    m.innerHTML = `<div class="modal-card"><h3>Checkout</h3><p class="err">${esc(e.message)}</p>
+      <button class="btn ghost" data-x>Close</button></div>`;
+    m.querySelectorAll("[data-x]").forEach((b) => (b.onclick = closeModal));
+    return;
+  }
+  const p = q.payment;
+  m.innerHTML = `<div class="modal-card">
+    <div class="modal-head"><h3>Pay by UPI</h3><button class="icon-btn" data-x aria-label="Close">&times;</button></div>
+    <p class="empty">${esc(q.label)} · you pay <b>${rupees(q.amountPaise)}</b></p>
+    ${p.configured ? `
+      ${p.qr ? `<div class="qr"><img src="${esc(p.qr)}" alt="UPI QR code" width="220" height="220"></div>` : ""}
+      <p class="empty">Scan with any UPI app, or pay to <b>${esc(p.vpa)}</b> (${esc(p.payeeName)}).</p>
+      ${p.uri ? `<p class="row"><a class="btn" href="${esc(p.uri)}" rel="noopener">Open UPI app</a></p>` : ""}`
+    : `<p class="empty">UPI is not configured on this panel yet — set <code>UPI_VPA</code> in <code>.env</code>. The purchase below will still be recorded.</p>`}
+    <label class="check"><input id="co-ref" placeholder="UPI reference / UTR (optional)"></label>
+    <p id="co-err" class="err"></p>
+    <div class="row"><button id="co-pay" class="btn">I've paid · activate ${esc(q.kind === "credits" ? q.credits + " credits" : "membership")}</button>
+      <button class="btn ghost" data-x>Cancel</button></div>
+  </div>`;
+  m.querySelectorAll("[data-x]").forEach((b) => (b.onclick = closeModal));
+  $("#co-pay").onclick = async () => {
+    $("#co-err").textContent = "";
+    $("#co-pay").disabled = true;
+    try {
+      await api("/reseller/checkout/pay", "POST", { kind, ...payload, ref: $("#co-ref").value.trim() });
+      closeModal();
+      me = await api("/me"); showCredits(); wallet();
+    } catch (e) { $("#co-err").textContent = e.message; $("#co-pay").disabled = false; }
+  };
+}
+
+// ---------- admin: approve credit and membership requests ----------
+let payFilter = "pending";
+async function payments() {
+  const decide = async (rid, action) => {
+    $("#p-err").textContent = "";
+    try { await api(`/admin/requests/${rid}/${action}`, "POST", {}); payments(); }
+    catch (e) { $("#p-err").textContent = e.message; }
+  };
+  const reqs = await api("/admin/requests");
+  const shown = payFilter ? reqs.filter((r) => r.status === payFilter) : reqs;
+  $("#view").innerHTML = `<div class="panel"><h3>Payment &amp; membership requests</h3>
+    <div class="tabs">${[["pending", "Pending"], ["approved", "Approved"], ["rejected", "Rejected"], ["", "All"]].map(([v, l]) =>
+      `<button class="tab${payFilter === v ? " on" : ""}" data-f="${v}">${l}</button>`).join("")}</div>
+    ${list(shown, (r) => `<div class="item">
+      <div><strong>${esc(r.reseller ? r.reseller.name : "Reseller")}</strong>
+        <small>${r.kind === "credits" ? r.credits + " credits" : (r.plan ? esc(r.plan.name) + " membership" : "Membership")} · ${rupees(r.amountPaise)} · ${new Date(r.at).toLocaleString()}</small>
+        <small>${esc(r.reseller ? r.reseller.email : "")}${r.method ? " · " + esc(r.method) : ""}${r.note ? " · " + esc(r.note) : ""}</small></div>
+      <div class="row-inline">${statusTag(r.status)}
+        ${r.status === "pending" ? `<button class="btn" data-ok="${r.id}">Approve</button><button class="btn ghost danger" data-no="${r.id}">Reject</button>` : ""}</div></div>`,
+    "Nothing here.")}</div><p id="p-err" class="err"></p>`;
+  document.querySelectorAll("[data-f]").forEach((b) => (b.onclick = () => { payFilter = b.dataset.f; payments(); }));
+  document.querySelectorAll("[data-ok]").forEach((b) => (b.onclick = () => decide(b.dataset.ok, "approve")));
+  document.querySelectorAll("[data-no]").forEach((b) => (b.onclick = () => decide(b.dataset.no, "reject")));
+}
+
+// ---------- admin: credit pricing and membership plans ----------
+async function pricing() {
+  const s = await api("/admin/settings");
+  const editing = editingPlan;
+  $("#view").innerHTML = `
+    <div class="panel"><h3>Credit pricing</h3>
+      <p class="empty">The buy price is what the platform pays per credit; the sell price is what a reseller pays. Both are held in paise so a large campaign never rounds wrong.</p>
+      <div class="row">
+        <label>Buy price (₹ / credit)<input id="pr-buy" type="number" min="0.01" step="0.01" value="${(s.creditBuyPricePaise / 100).toFixed(2)}"></label>
+        <label>Sell price (₹ / credit)<input id="pr-sell" type="number" min="0.01" step="0.01" value="${(s.creditSellPricePaise / 100).toFixed(2)}"></label>
+      </div>
+      <label class="check"><input id="pr-req" type="checkbox"${s.requireMembership ? " checked" : ""}> Require an active membership before a reseller can send</label>
+      <p class="empty">Margin: ${rupees(s.creditSellPricePaise - s.creditBuyPricePaise)} per credit.</p>
+      <p id="pr-err" class="err"></p>
+      <button id="pr-save" class="btn">Save pricing</button>
+    </div>
+    <div class="panel"><h3>${editing ? "Edit plan" : "Add a plan"}</h3>
+      <div class="row">
+        <input id="pl-name" placeholder="Plan name" value="${editing ? esc(editing.name) : ""}">
+        <input id="pl-months" type="number" min="1" step="1" placeholder="Months" value="${editing ? editing.months : ""}">
+        <input id="pl-price" type="number" min="1" step="1" placeholder="Price (₹)" value="${editing ? (editing.pricePaise / 100) : ""}">
+      </div>
+      <p id="pl-err" class="err"></p>
+      <div class="row"><button id="pl-add" class="btn">${editing ? "Save plan" : "Add plan"}</button>
+        ${editing ? `<button id="pl-cancel" class="btn ghost">Cancel</button>` : ""}</div>
+    </div>
+    <div class="panel"><h3>Plans</h3>${list(s.plans, (p) => `<div class="item"><div><strong>${esc(p.name)}</strong><small>${p.months} month${p.months > 1 ? "s" : ""}</small></div>
+      <div class="row-inline"><span class="tag">${rupees(p.pricePaise)}</span>
+        <button class="btn ghost" data-pedit="${p.id}">Edit</button>
+        <button class="btn ghost danger" data-pdel="${p.id}">Delete</button></div></div>`, "No plans yet.")}</div>`;
+  $("#pr-save").onclick = async () => {
+    $("#pr-err").textContent = "";
+    try {
+      await api("/admin/settings", "PATCH", { creditBuyPricePaise: Math.round(Number($("#pr-buy").value) * 100),
+        creditSellPricePaise: Math.round(Number($("#pr-sell").value) * 100), requireMembership: $("#pr-req").checked });
+      pricing();
+    } catch (e) { $("#pr-err").textContent = e.message; }
+  };
+  $("#pl-add").onclick = async () => {
+    $("#pl-err").textContent = "";
+    const body = { name: $("#pl-name").value.trim(), months: Number($("#pl-months").value), pricePaise: Math.round(Number($("#pl-price").value) * 100) };
+    try {
+      if (editing) await api("/admin/plans/" + editing.id, "PUT", body);
+      else await api("/admin/plans", "POST", body);
+      editingPlan = null; pricing();
+    } catch (e) { $("#pl-err").textContent = e.message; }
+  };
+  if ($("#pl-cancel")) $("#pl-cancel").onclick = () => { editingPlan = null; pricing(); };
+  document.querySelectorAll("[data-pedit]").forEach((b) => (b.onclick = () => { editingPlan = s.plans.find((p) => p.id === +b.dataset.pedit); pricing(); }));
+  document.querySelectorAll("[data-pdel]").forEach((b) => (b.onclick = async () => {
+    if (!confirm("Delete this plan?")) return;
+    try { await api("/admin/plans/" + b.dataset.pdel, "DELETE"); pricing(); }
+    catch (e) { $("#pl-err").textContent = e.message; }
+  }));
 }
 
 async function settings() {

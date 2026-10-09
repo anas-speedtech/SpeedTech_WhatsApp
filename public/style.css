@@ -81,6 +81,33 @@ main h2{margin:0;font-size:21px}
 .tag.failed{background:#fdecea;color:#a3271d}
 .tag.simulated{background:#eef1fd;color:var(--blue)}
 .tag.in-draft{background:#f2f4f8;color:var(--muted)}
+.tag.whatsapp{background:#e4f6ec;color:#0b6b3a}
+.tag.sms{background:#eef1fd;color:var(--blue)}
+.tag.rcs{background:#fff4e0;color:#96560a}
+
+/* channel tabs, data table, price calculator, checkbox row (billing screens) */
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tab{background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 16px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer}
+.tab:hover{background:#f6f7fa}
+.tab.on{background:var(--blue);color:#fff;border-color:var(--blue)}
+.table{border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-top:12px}
+.thead,.trow{display:grid;grid-template-columns:60px 1.3fr 2fr 110px 110px 80px 110px;gap:12px;align-items:center;padding:12px 14px}
+.thead{background:#fafbfc;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:700}
+.trow{border-top:1px solid var(--line)}
+.trow:hover{background:#fafbfc}
+.trow small{color:var(--muted)}
+.check{display:flex;align-items:center;gap:10px;padding:10px 0;font-weight:500}
+.check input{width:auto;flex:none}
+.calc{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;margin:8px 0 12px}
+.calc label{display:flex;flex-direction:column;gap:6px;font-weight:600;min-width:200px}
+.calc-out{display:flex;flex-direction:column;gap:2px}
+.calc-out small{color:var(--muted)}
+.calc-out b{font-size:22px}
+.row label{display:flex;flex-direction:column;gap:6px;font-weight:600;font-size:14px}
+@media(max-width:860px){
+  .thead{display:none}
+  .trow{grid-template-columns:1fr 1fr}
+}
 .empty{color:var(--muted);padding:12px 0}
 .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
 .btn.ghost:hover{background:#f6f7fa;filter:none}
@@ -150,3 +177,14 @@ input[type=file]{padding:8px;font-size:14px}
 @media(prefers-reduced-motion:reduce){
   .ring{animation:none}
 }
+
+/* UPI checkout sheet. Sits above the app so a reseller can scan and confirm without
+   losing the wallet behind it. */
+.modal{position:fixed;inset:0;z-index:60;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.55)}
+.modal-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px;width:100%;max-width:420px;max-height:90vh;overflow:auto;box-shadow:0 18px 50px rgba(15,23,42,.28)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.modal-head h3{margin:0;font-size:18px}
+.qr{display:grid;place-items:center;padding:8px 0 4px}
+.qr img{border:1px solid var(--line);border-radius:10px;background:#fff}
+.modal-card code{background:#f2f4f8;border-radius:4px;padding:1px 5px;font-size:13px}
+a.btn{display:inline-block;text-align:center;text-decoration:none}

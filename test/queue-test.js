@@ -131,6 +131,13 @@ try { fs.copyFileSync(DB, REAL_DB); } catch (e) { console.log("no db to back up:
     const grant = await req("POST", `${BASE}/api/admin/resellers/${rs.user.id}/credits`, { amount: 100 }, admin.token);
     ok("admin can grant credits", grant.status === 200 && grant.json.credits === 100, grant);
 
+    // membership gates sending now, so give the reseller an active plan before the send tests
+    const plans = (await req("GET", `${BASE}/api/pricing`, null, rs.token)).json.plans;
+    const mreq = await req("POST", `${BASE}/api/reseller/requests`, { kind: "membership", planId: plans[0].id }, rs.token);
+    await req("POST", `${BASE}/api/admin/requests/${mreq.json.id}/approve`, {}, admin.token);
+    const mstate = (await req("GET", `${BASE}/api/me`, null, rs.token)).json;
+    ok("reseller membership is active for the send tests", mstate.membership && mstate.membership.state === "active", mstate.membership);
+
     // ---------- health check, no sends ----------
     const h = await req("GET", `${BASE}/api/helo/status`, null, admin.token);
     ok("admin health check passes against the stub", h.json.ok === true, h.json);

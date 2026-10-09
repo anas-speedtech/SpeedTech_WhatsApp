@@ -46,12 +46,29 @@ const RESPONSES = {
   "/api/campaigns": CAMPAIGNS,
   "/api/templates": [{ name: "demo_template", status: "SIMULATED" }, { templateName: "helo_shape", status_name: "APPROVED" }, { id: "raw_id" }],
   "/api/reseller/users": [
-    { id: 9, name: "Buyer", email: "b@x.com", role: "user", phone: "+919876543210" },
-    { id: 8, name: "No Phone", email: "n@x.com", role: "user", phone: "" },
+    { id: 9, name: "Buyer", email: "b@x.com", role: "user", phone: "+919876543210", credits: 0, active: true, onboardedAt: AT },
+    { id: 8, name: "No Phone", email: "n@x.com", role: "user", phone: "", credits: 0, active: false, onboardedAt: AT },
   ],
+  "/api/reseller/stats": { users: 2, active: 1, inactive: 1, creditsPurchased: 10, creditsAssignedReseller: 0,
+    creditsAssignedUser: 0, creditsUsedReseller: 4, creditsUsedUser: 0, creditsAvailable: 6 },
+  "/api/reseller/requests": [
+    { id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending" },
+  ],
+  "/api/reseller/txns": [
+    { id: 1, at: AT, type: "purchase", fromId: 2, toId: 1, credits: 10, amountPaise: 1000, note: "approved" },
+  ],
+  "/api/pricing": { creditSellPricePaise: 100, plans: [{ id: 1, name: "Starter", months: 1, pricePaise: 149900 }] },
+  "/api/admin/requests": [
+    { id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending",
+      reseller: { id: 1, name: "Atulya", email: "a@x.com" }, plan: null },
+  ],
+  "/api/admin/settings": { creditBuyPricePaise: 90, creditSellPricePaise: 100, requireMembership: true,
+    plans: [{ id: 1, name: "Starter", months: 1, pricePaise: 149900 }] },
   "/api/admin/resellers": [
-    { id: 1, name: "Atulya", email: "a@x.com", role: "reseller", credits: 6, resellerCode: "K7M2PQ", customers: 2 },
-    { id: 3, name: "Rival", email: "r@x.com", role: "reseller", credits: 0, resellerCode: "B4N8XT", customers: 0 },
+    { id: 1, name: "Atulya", email: "a@x.com", role: "reseller", credits: 6, resellerCode: "K7M2PQ", customers: 2, campaigns: 2,
+      creditsPurchased: 5, creditsAssigned: 1, creditsUsed: 4, revenue: 2000, membership: { state: "active", expiresAt: AT }, active: true },
+    { id: 3, name: "Rival", email: "r@x.com", role: "reseller", credits: 0, resellerCode: "B4N8XT", customers: 0, campaigns: 0,
+      creditsPurchased: 0, creditsAssigned: 0, creditsUsed: 0, revenue: 0, membership: { state: "none" }, active: false },
   ],
 };
 
@@ -84,6 +101,7 @@ src += `
   getMe: () => me,
   run: async (label) => { const e = navEntries(me.role).find((x) => x.label === label); await e.fn(); },
   view: () => document.querySelector("#view").innerHTML,
+  inner: (sel) => document.querySelector(sel).innerHTML,
   creditBox: () => document.querySelector("#credits"),
   creditHidden: () => document.querySelector("#credits").classList.contains("hidden"),
   roleLabel: () => document.querySelector("#me-role").textContent,
@@ -154,18 +172,21 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("reseller credit count shown", t.creditBox().textContent === "6 credits", t.creditBox().textContent);
   check("reseller labelled with code", /Reseller · code K7M2PQ/.test(t.roleLabel()), t.roleLabel());
   const rDash = t.view();
-  check("reseller dashboard counts campaigns", /<b>2<\/b><span>Campaigns sent/.test(rDash), rDash.slice(0, 200));
-  check("reseller dashboard sums recipients (3+1)", /<b>4<\/b><span>Recipients reached/.test(rDash), rDash.slice(0, 200));
-  check("reseller dashboard revenue excludes cancelled (250+750+500)", /<b>₹1,500<\/b><span>Order revenue/.test(rDash), rDash.slice(0, 220));
+  check("reseller dashboard counts total users", /<b>2<\/b><span>Total users/.test(rDash), rDash.slice(0, 300));
+  check("reseller dashboard counts active users", /<b>1<\/b><span>Active users/.test(rDash), rDash.slice(0, 300));
+  check("reseller dashboard counts inactive users", /<b>1<\/b><span>Inactive users/.test(rDash), rDash.slice(0, 300));
+  check("reseller dashboard shows wallet credits", /<b>6<\/b><span>Wallet credits/.test(rDash), rDash.slice(0, 300));
+  check("reseller dashboard renders the WhatsApp user table", /id="u-table"/.test(rDash) && /Buyer/.test(t.inner("#u-table")), t.inner("#u-table").slice(0, 200));
+  check("reseller user table marks an inactive user", /Inactive/.test(t.inner("#u-table")), t.inner("#u-table").slice(0, 200));
 
   const rLabels = labels("reseller");
   // Broadcast and Analyse are now sections rather than pages, so they are checked at the top level
-  for (const want of ["Dashboard", "Products", "Customers", "Orders", "Campaigns", "Governance", "Reports", "Templates", "Shortlinks", "Settings", "Developers"])
+  for (const want of ["Dashboard", "Products", "Customers", "Orders", "Wallet", "Campaigns", "Governance", "Reports", "Templates", "Shortlinks", "Settings", "Developers"])
     check("reseller nav has " + want, rLabels.includes(want), rLabels.join(", "));
   for (const want of ["Broadcast", "Analyse", "Store"])
     check("reseller top level has " + want, topOf("reseller").includes(want), topOf("reseller").join(", "));
-  check("reseller top level is Broadcast/Analyse/Store/Orders/Templates/Shortlinks/Settings/Developers",
-    JSON.stringify(topOf("reseller")) === JSON.stringify(["Broadcast", "Analyse", "Store", "Orders", "Templates", "Shortlinks", "Settings", "Developers"]), topOf("reseller").join(", "));
+  check("reseller top level is Broadcast/Analyse/Store/Orders/Wallet/Templates/Shortlinks/Settings/Developers",
+    JSON.stringify(topOf("reseller")) === JSON.stringify(["Broadcast", "Analyse", "Store", "Orders", "Wallet", "Templates", "Shortlinks", "Settings", "Developers"]), topOf("reseller").join(", "));
   check("reseller sections slide open by default", t.NAV.reseller.filter((s) => s.children).every((s) => s.children.length >= 2), "expected 2+ children per section");
   check("Products sits under the Store section", groupOf("reseller", "Products") === "Store", groupOf("reseller", "Products"));
   check("Customers sits under the Store section", groupOf("reseller", "Customers") === "Store", groupOf("reseller", "Customers"));
@@ -187,9 +208,10 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("catalogue price input is numeric", /id="p-price" type="number" min="0"/.test(cat), cat.slice(0, 200));
 
   t.go("Customers"); await wait();
-  const cust = t.view();
+  const cust = t.inner("#cu-table");
   check("customers page shows buyer name", /Buyer/.test(cust), cust.slice(0, 200));
   check("customer without a phone is marked", /No Phone/.test(cust) && /no phone/i.test(cust), cust.slice(0, 300));
+  check("customer table marks an inactive user", /Inactive/.test(cust), cust.slice(0, 300));
 
   t.go("Orders"); await wait();
   const inc = t.view();
@@ -206,10 +228,15 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("campaign page shows the credit cost", /credit/i.test(camp), camp.slice(0, 300));
   check("campaign page offers body variables", /id="c-v1"/.test(camp) && /id="c-v2"/.test(camp), camp.slice(0, 400));
 
-  RESPONSES["/api/campaigns"] = [];
-  t.go("Dashboard"); await wait();
-  check("empty campaign list links to Campaigns", /data-go='Campaigns'/.test(t.view()), t.view().slice(0, 200));
-  RESPONSES["/api/campaigns"] = CAMPAIGNS;
+  t.go("Wallet"); await wait();
+  const wal = t.view();
+  check("wallet shows the sell price per credit", /₹1\.00/.test(wal), wal.slice(0, 300));
+  check("wallet shows a price calculator", /id="w-qty"/.test(wal) && /id="w-cost"/.test(wal), wal.slice(0, 300));
+  check("wallet lists membership plans", /Starter/.test(wal) && /data-plan="1"/.test(wal), wal.slice(0, 400));
+  check("wallet shows payment history", /100 credits/.test(wal) && /pending/.test(wal), wal.slice(0, 400));
+  check("wallet offers a Buy credits button", /id="w-buy"[^>]*>Buy credits</.test(wal), wal.slice(0, 400));
+  check("wallet no longer says Request credits", !/Request credits/.test(wal), wal.slice(0, 400));
+  check("wallet plan buttons read Buy", (wal.match(/data-plan="1"[^>]*>Buy</g) || []).length === 1, wal.slice(0, 500));
 
   t.go("Settings"); await wait();
   const rSet = t.view();
@@ -224,8 +251,8 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
 
   // ---------------- admin ----------------
   ME = ADMIN; await t.boot(); await wait();
-  check("admin nav is exactly Dashboard/Resellers/Orders/Settings",
-    JSON.stringify(labels("admin")) === JSON.stringify(["Dashboard", "Resellers", "Orders", "Settings"]), labels("admin").join(", "));
+  check("admin nav is exactly Dashboard/Resellers/Orders/Payments/Pricing/Settings",
+    JSON.stringify(labels("admin")) === JSON.stringify(["Dashboard", "Resellers", "Orders", "Payments", "Pricing", "Settings"]), labels("admin").join(", "));
   check("admin nav has no collapsible sections", topOf("admin").every((l) => !t.NAV.admin.find((s) => s.label === l && s.children)), topOf("admin").join(", "));
   check("admin credit box is hidden", t.creditHidden(), "visible");
   check("admin is labelled Platform owner", /Platform owner/.test(t.roleLabel()), t.roleLabel());
@@ -236,13 +263,24 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("admin dashboard shows reseller balances", /K7M2PQ|B4N8XT/.test(aDash) || /Atulya/.test(aDash), aDash.slice(0, 300));
 
   t.go("Resellers"); await wait();
-  const rl = t.view();
+  const rl = t.inner("#r-list");
   check("resellers page lists accounts", /Atulya/.test(rl) && /Rival/.test(rl), rl.slice(0, 200));
   check("resellers page shows credits", /6 credits/.test(rl) || /data-add="1"/.test(rl), rl.slice(0, 300));
   check("resellers page has grant and remove controls", /data-add="1"/.test(rl) && /data-sub="1"/.test(rl), rl.slice(0, 300));
   check("resellers page has a credit amount input", /id="amt-1"/.test(rl) && /class="mini"/.test(rl), rl.slice(0, 300));
-  check("resellers page has an error target", /id="p-err"/.test(rl), rl.slice(0, 120));
+  check("resellers page shows membership and usage", /Active/.test(rl) && /used/.test(rl), rl.slice(0, 400));
+  check("resellers page has an error target", /id="p-err"/.test(t.view()), t.view().slice(0, 120));
   check("admin has no product or campaign tabs", !labels("admin").some((l) => ["Products", "Campaigns", "Store", "Broadcast"].includes(l)), labels("admin").join(", "));
+
+  t.go("Payments"); await wait();
+  const pay = t.view();
+  check("payments page lists a pending request", /Atulya/.test(pay) && /100 credits/.test(pay), pay.slice(0, 300));
+  check("payments page offers approve and reject", /data-ok="5"/.test(pay) && /data-no="5"/.test(pay), pay.slice(0, 300));
+
+  t.go("Pricing"); await wait();
+  const pri = t.view();
+  check("pricing page shows buy and sell inputs", /id="pr-buy"/.test(pri) && /id="pr-sell"/.test(pri), pri.slice(0, 300));
+  check("pricing page lists plans with edit and delete", /Starter/.test(pri) && /data-pedit="1"/.test(pri) && /data-pdel="1"/.test(pri), pri.slice(0, 400));
 
   t.go("Orders"); await wait();
   const all = t.view();

@@ -5,13 +5,14 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "test": "node test/helo-test.js && node test/queue-test.js && node test/verify-model.js && node test/ui-model-test.js"
+    "test": "node test/helo-test.js && node test/queue-test.js && node test/verify-model.js && node test/billing-test.js && node test/ui-model-test.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^2.4.0"
+    "multer": "^2.4.0",
+    "qrcode": "^1.5.4"
   }
 }
