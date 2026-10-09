@@ -151,31 +151,21 @@ input[type=file]{padding:8px;font-size:14px}
   #view{padding:16px}
 }
 
-/* Boot splash and inline view loader. The ring is Helo's loading screen pattern: a thin
-   conic-gradient sweep with a hard core punched out by ::before, retokenised to our
-   palette. The core uses var(--bg) rather than Helo's hardcoded #fff so the hole matches
-   whatever surface it sits on. Band thickness is set entirely by the ::before inset --
-   Helo also carries a padding:6px on the ring, which is inert because background-clip
-   defaults to border-box, so it is left out here. */
-#splash{position:fixed;inset:0;z-index:50;display:grid;place-items:center;align-content:center;gap:14px;background:var(--bg)}
-.ring-wrap{position:relative;width:200px;height:200px}
-.ring{position:absolute;inset:0;border-radius:100%;background:conic-gradient(from 0deg,var(--blue),var(--ink),var(--blue));animation:ring-spin .75s linear infinite}
-.ring::before{content:"";position:absolute;inset:8px;border-radius:100%;background:var(--bg)}
-.ring-mark{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:100px;height:100px;object-fit:contain}
-@keyframes ring-spin{from{transform:rotate(0deg)}to{transform:rotate(1turn)}}
+/* Boot splash and inline view loader. Three pulsing dots: the lightest thing that still
+   reads as "working", whether it sits over the first paint or inside a view's fetch. */
+#splash{position:fixed;inset:0;z-index:50;display:grid;place-items:center;align-content:center;gap:18px;background:var(--bg)}
+.dots{display:flex;align-items:center;justify-content:center;gap:10px}
+.dots span{width:14px;height:14px;border-radius:50%;background:var(--blue);animation:dot-pulse 1.2s ease-in-out infinite}
+.dots span:nth-child(2){animation-delay:.16s}
+.dots span:nth-child(3){animation-delay:.32s}
+@keyframes dot-pulse{0%,80%,100%{transform:scale(.55);opacity:.35}40%{transform:scale(1);opacity:1}}
 .splash-msg{font-size:14px;max-width:32ch;text-align:center}
 .splash-msg:empty{display:none}
-.splash-inline{position:static;display:grid;place-items:center;min-height:40vh;padding:24px 0}
-.splash-inline .ring-wrap{width:96px;height:96px}
-.splash-inline .ring::before{inset:4px}
-.splash-inline .ring-mark{width:48px;height:48px}
-@media(max-width:480px){
-  .ring-wrap{width:140px;height:140px}
-  .ring::before{inset:4px}
-  .ring-mark{width:80px;height:80px}
-}
+.splash-inline{display:grid;place-items:center;min-height:40vh;padding:24px 0}
+.splash-inline .dots span{width:10px;height:10px}
+.modal-load{display:grid;place-items:center;padding:34px 0}
 @media(prefers-reduced-motion:reduce){
-  .ring{animation:none}
+  .dots span{animation:none;opacity:.7}
 }
 
 /* UPI checkout sheet. Sits above the app so a reseller can scan and confirm without

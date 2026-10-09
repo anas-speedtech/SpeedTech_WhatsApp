@@ -135,7 +135,7 @@ function go(name) {
   // every view function overwrites #view once its data lands, so the inline ring only
   // shows while those fetches are in flight. Self-refreshes (campaigns() re-rendering
   // after a send) call the view directly and so do not flash it.
-  $("#view").innerHTML = `<div class="splash-inline">${RING}</div>`;
+  $("#view").innerHTML = `<div class="splash-inline">${DOTS}</div>`;
   Promise.resolve(entry.fn()).catch((e) => { $("#view").innerHTML = `<p class="err">${esc(e.message || e)}</p>`; });
 }
 
@@ -194,10 +194,9 @@ $("#side-toggle").onclick = () => {
 };
 
 // ---------- boot splash ----------
-// Helo shows a spinning ring while the app boots and while a view's data loads. Ours is
-// the same pattern: #splash covers first paint, and .splash-inline is the smaller copy
-// swapped into #view by go().
-const RING = '<div class="ring-wrap"><div class="ring"></div><img class="ring-mark" src="logo.png" alt=""></div>';
+// The loader is three pulsing dots -- #splash covers first paint, and the same dots are
+// swapped into #view by go() while a page's data is still in flight.
+const DOTS = '<div class="dots" role="status" aria-label="Loading"><span></span><span></span><span></span></div>';
 const hideSplash = () => $("#splash").classList.add("hidden");
 // A dead /api/config used to leave a blank white page with no way forward.
 function splashError(err) {
@@ -695,7 +694,7 @@ function closeModal() { const m = $("#modal"); m.innerHTML = ""; m.classList.add
 async function openCheckout(kind, payload) {
   const m = $("#modal");
   m.classList.remove("hidden");
-  m.innerHTML = `<div class="modal-card"><div class="splash-inline">${RING}</div></div>`;
+  m.innerHTML = `<div class="modal-card"><div class="modal-load">${DOTS}</div></div>`;
   let q;
   try { q = await api("/reseller/checkout/quote", "POST", { kind, ...payload }); }
   catch (e) {
