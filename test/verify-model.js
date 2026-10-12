@@ -259,6 +259,23 @@ async function upload(p, method, fields, token, file) {
   ok("delivery counters start at zero for DLR later", shaped.data.campaign.delivered === 0
     && shaped.data.campaign.failed === 0, shaped.data.campaign);
 
+  // ---------- hand-added templates (fallback while Helo's list is unreachable) ----------
+  const cnone = await call("/api/templates/custom", "GET", null, T1);
+  ok("no hand-added templates to start", cnone.status === 200 && cnone.data.length === 0, cnone.data);
+  const cbad = await call("/api/templates/custom", "POST", { name: "   " }, T1);
+  ok("a hand-added template needs a name (400)", cbad.status === 400, cbad.data);
+  const cadd = await call("/api/templates/custom", "POST", { name: "ismotors_client", language: "English" }, T1);
+  ok("reseller adds a template by hand", cadd.status === 200 && cadd.data.name === "ismotors_client"
+    && cadd.data.custom === true && cadd.data.category === "MARKETING", cadd.data);
+  const clist = await call("/api/templates/custom", "GET", null, T1);
+  ok("hand-added template is listed for its owner", clist.data.length === 1 && clist.data[0].id === cadd.data.id, clist.data);
+  const cOther = await call("/api/templates/custom", "GET", null, B1);
+  ok("another account does not see it", cOther.status === 200 && cOther.data.length === 0, cOther.data);
+  const cSteal = await call("/api/templates/custom/" + cadd.data.id, "DELETE", null, B1);
+  ok("another account cannot delete it (404)", cSteal.status === 404, cSteal.data);
+  const cdel = await call("/api/templates/custom/" + cadd.data.id, "DELETE", null, T1);
+  ok("owner deletes the hand-added template", cdel.status === 200 && cdel.data.ok === true, cdel.data);
+
   // ---------- cleanup of the test product ----------
   const del = await call("/api/products/" + withImg.data.id, "DELETE", null, T1);
   ok("reseller deletes a product", del.status === 200, del);

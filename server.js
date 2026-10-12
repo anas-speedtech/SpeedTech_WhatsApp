@@ -23,7 +23,7 @@ const UPI_PAYEE_NAME = (process.env.UPI_PAYEE_NAME || process.env.BRAND_NAME || 
 // ---- tiny JSON "database" (swap for MySQL/Postgres later) ----
 const db = fs.existsSync(DB_FILE)
   ? JSON.parse(fs.readFileSync(DB_FILE, "utf8"))
-  : { users: [], products: [], orders: [], campaigns: [], settings: billing.defaultSettings(), plans: [], requests: [], txns: [], nextId: 1 };
+  : { users: [], products: [], orders: [], campaigns: [], templates: [], settings: billing.defaultSettings(), plans: [], requests: [], txns: [], nextId: 1 };
 const save = () => fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 const id = () => db.nextId++;
 
@@ -66,6 +66,7 @@ let migrated = false;
 for (const u of db.users) {
   if (u.role === "reseller" && !u.resellerCode) { u.resellerCode = "R" + u.id; migrated = true; }
 }
+if (!Array.isArray(db.templates)) { db.templates = []; migrated = true; }
 
 // platform owner: seeded from env, never through the public sign-up form
 if (process.env.ADMIN_EMAIL) {
@@ -255,6 +256,25 @@ app.get("/api/orders", auth(), (req, res) => {
 // ---- reseller: WhatsApp campaigns to his own buyers ----
 app.get("/api/templates", auth(), async (_, res) => {
   try { res.json(await helo.listTemplates()); } catch (e) { res.status(502).json({ error: e.message }); }
+});
+// Templates the reseller types in by hand, so campaigns can still be built while the
+// Helo template list is unreachable. Scoped per account; never touches Helo itself.
+const customTemplate = (t) => ({ id: t.id, name: t.name, category: t.category, language: t.language,
+  at: t.at, custom: true, status: "MANUAL" });
+app.get("/api/templates/custom", auth(), (req, res) =>
+  res.json(db.templates.filter((t) => t.ownerId === req.user.id).map(customTemplate)));
+app.post("/api/templates/custom", auth(), (req, res) => {
+  const name = String(req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Template name is required" });
+  const t = { id: id(), ownerId: req.user.id, name: name.slice(0, 120),
+    category: String(req.body.category || "MARKETING").trim().toUpperCase() || "MARKETING",
+    language: String(req.body.language || "en").trim() || "en", at: new Date().toISOString() };
+  db.templates.push(t); save(); res.json(customTemplate(t));
+});
+app.delete("/api/templates/custom/:id", auth(), (req, res) => {
+  const i = db.templates.findIndex((t) => t.id === +req.params.id && t.ownerId === req.user.id);
+  if (i < 0) return res.status(404).json({ error: "Template not found" });
+  db.templates.splice(i, 1); save(); res.json({ ok: true });
 });
 // A campaign of N recipients is N single-send requests, so the request handler must not
 // wait for the provider. Campaigns are recorded up front as "Sending" and a background

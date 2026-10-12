@@ -484,21 +484,23 @@ async function campaigns() {
   // Templates are the only fetch that depends on Helo being up. If the provider is
   // unreachable this must not reject, or Promise.all would replace the whole view with a
   // raw "Helo unreachable" error and the campaign list would be unusable.
-  const [cs, us, heloErr, rawTs] = await Promise.all([
+  const [cs, us, heloErr, rawTs, rawCustom] = await Promise.all([
     api("/campaigns"), api("/reseller/users"),
     api("/templates").then(() => null, (e) => e.message),
+    api("/templates/custom").catch(() => []),
   ]);
-  const ts = rawTs || [];
+  const ts = [...(rawCustom || []), ...(rawTs || [])];
   const selectable = us.filter((u) => u.phone);
   const missing = us.length - selectable.length;
-  // Helo only accepts APPROVED templates, and needs the category + language with the name
-  const usable = ts.filter((t) => tplStatus(t) === "APPROVED" || tplStatus(t) === "SIMULATED");
+  // Helo only accepts APPROVED templates, and needs the category + language with the name.
+  // Hand-entered templates are treated as ready, so a campaign can still be built offline.
+  const usable = ts.filter((t) => t.custom || tplStatus(t) === "APPROVED" || tplStatus(t) === "SIMULATED");
   const tplLabel = (t) => [tplName(t), tplStatus(t), t.category, t.language].filter(Boolean).join(" · ");
   $("#view").innerHTML = `
     <div class="panel"><h3>New campaign</h3>
-      ${heloErr ? `<p class="empty">Could not reach Helo to load templates — ${esc(heloErr)}. Campaigns below still show, but nothing can be sent until the API is back.</p>`
+      ${heloErr ? `<p class="empty">Could not reach Helo to load templates — ${esc(heloErr)}. Campaigns below still show; add a template by hand on the Templates page to keep going.</p>`
         : cfg.heloConnected ? "" : "<p class='empty'>Helo API not connected yet — campaigns are simulated.</p>"}
-      ${!usable.length ? `<p class="empty">No approved templates available. Create and get one approved in Helo first.</p>` : ""}
+      ${!usable.length ? `<p class="empty">No templates available. Get one approved in Helo, or add your own on the Templates page.</p>` : ""}
       <div class="row"><input id="c-name" placeholder="Campaign name">
         <select id="c-tpl">${usable.map((t, i) => `<option value="${i}">${esc(tplLabel(t))}</option>`).join("")}</select></div>
       <div class="row">
@@ -557,8 +559,12 @@ async function campaigns() {
 
 async function templates() {
   let ts = [];
+  let custom = [];
   let err = null;
-  try { ts = await api("/templates"); } catch (e) { err = e.message; }
+  [ts, custom] = await Promise.all([
+    api("/templates").catch((e) => { err = e.message; return []; }),
+    api("/templates/custom").catch(() => []),
+  ]);
   $("#view").innerHTML = `
     <div class="panel"><h3>Your templates</h3>
       <p class="empty">${err
@@ -569,7 +575,30 @@ async function templates() {
       ${list(ts, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
         <small>${esc(tplStatus(t) || "Approved")}</small></div>
         <span class="tag">${esc(tplStatus(t) || "ready")}</span></div>`, "No templates available.")}</div>
-    <div class="panel"><h3>Add your own</h3><p class="empty">Creating and editing templates inside the panel is not built yet — do it in Helo for now and they will appear here (TODO 4).</p></div>`;
+    <div class="panel"><h3>Add your own</h3>
+      <p class="empty">Type in a template that already exists in Helo (name and language must match). It shows up in the campaign builder straight away, even while the Helo template list is unreachable.</p>
+      <div class="row">
+        <input id="t-name" placeholder="Template name, e.g. ismotors_client">
+        <select id="t-cat"><option>MARKETING</option><option>UTILITY</option><option>AUTHENTICATION</option></select>
+        <input id="t-lang" placeholder="Language" value="en"></div>
+      <p id="t-err" class="err"></p>
+      <button id="t-add" class="btn">Add template</button></div>
+    <div class="panel"><h3>Your added templates</h3>
+      ${list(custom, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
+        <small>${esc(t.category)} · ${esc(t.language)}</small></div>
+        <button class="btn ghost" data-del="${t.id}">Delete</button></div>`, "None added yet.")}</div>`;
+  $("#t-add").onclick = async () => {
+    $("#t-err").textContent = "";
+    try {
+      await api("/templates/custom", "POST", { name: $("#t-name").value, category: $("#t-cat").value, language: $("#t-lang").value });
+      templates();
+    } catch (e) { $("#t-err").textContent = e.message; }
+  };
+  document.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+    $("#t-err").textContent = "";
+    try { await api("/templates/custom/" + b.dataset.del, "DELETE"); templates(); }
+    catch (e) { $("#t-err").textContent = e.message; }
+  }));
 }
 
 async function developers() {

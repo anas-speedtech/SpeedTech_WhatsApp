@@ -45,6 +45,7 @@ const RESPONSES = {
     : ME.role === "reseller" ? ORDERS.filter((o) => o.resellerId === ME.id) : ORDERS.filter((o) => o.userId === ME.id)),
   "/api/campaigns": CAMPAIGNS,
   "/api/templates": [{ name: "demo_template", status: "SIMULATED" }, { templateName: "helo_shape", status_name: "APPROVED" }, { id: "raw_id" }],
+  "/api/templates/custom": [{ id: 7, name: "my_hand_template", category: "MARKETING", language: "en", custom: true, status: "MANUAL", at: AT }],
   "/api/reseller/users": [
     { id: 9, name: "Buyer", email: "b@x.com", role: "user", phone: "+919876543210", credits: 0, active: true, onboardedAt: AT },
     { id: 8, name: "No Phone", email: "n@x.com", role: "user", phone: "", credits: 0, active: false, onboardedAt: AT },
@@ -229,9 +230,16 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   const camp = t.view();
   check("campaigns page renders the picker", /id="c-name"/.test(camp) && /pick-row/.test(camp), camp.slice(0, 200));
   check("campaign page offers only approved/simulated templates", /demo_template/.test(camp) && /helo_shape/.test(camp) && !/raw_id/.test(camp), camp.slice(0, 400));
+  check("campaign page includes a hand-added template", /my_hand_template/.test(camp), camp.slice(0, 400));
   check("campaign page has no undefined option", !/>undefined</.test(camp), camp.slice(0, 300));
   check("campaign page shows the credit cost", /credit/i.test(camp), camp.slice(0, 300));
   check("campaign page offers body variables", /id="c-v1"/.test(camp) && /id="c-v2"/.test(camp), camp.slice(0, 400));
+
+  t.go("Templates"); await wait();
+  const tpl = t.view();
+  check("templates page shows Helo templates", /demo_template/.test(tpl), tpl.slice(0, 300));
+  check("templates page has an add-your-own form", /id="t-name"/.test(tpl) && /id="t-add"[^>]*>Add template/.test(tpl), tpl.slice(0, 500));
+  check("templates page lists hand-added templates with delete", /my_hand_template/.test(tpl) && /data-del="7"/.test(tpl), tpl.slice(0, 600));
 
   t.go("Wallet"); await wait();
   const wal = t.view();
