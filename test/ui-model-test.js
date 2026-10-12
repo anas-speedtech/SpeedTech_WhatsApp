@@ -235,11 +235,14 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("campaign page shows the credit cost", /credit/i.test(camp), camp.slice(0, 300));
   check("campaign page offers body variables", /id="c-v1"/.test(camp) && /id="c-v2"/.test(camp), camp.slice(0, 400));
 
-  t.go("Templates"); await wait();
+  t.go("Templates"); await wait(30);
   const tpl = t.view();
-  check("templates page shows Helo templates", /demo_template/.test(tpl), tpl.slice(0, 300));
+  const heloTpl = t.inner("#t-helo");
+  const customTpl = t.inner("#t-custom");
+  check("templates page shows Helo templates", /demo_template/.test(heloTpl), heloTpl.slice(0, 300));
   check("templates page has an add-your-own form", /id="t-name"/.test(tpl) && /id="t-add"[^>]*>Add template/.test(tpl), tpl.slice(0, 500));
-  check("templates page lists hand-added templates with delete", /my_hand_template/.test(tpl) && /data-del="7"/.test(tpl), tpl.slice(0, 600));
+  check("templates page lists hand-added templates with delete", /my_hand_template/.test(customTpl) && /data-del="7"/.test(customTpl), customTpl.slice(0, 600));
+  check("templates page loads Helo and hand-added panels independently", /id="t-helo"/.test(tpl) && /id="t-custom"/.test(tpl), tpl.slice(0, 500));
 
   t.go("Wallet"); await wait();
   const wal = t.view();

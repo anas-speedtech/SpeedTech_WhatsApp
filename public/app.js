@@ -12,6 +12,22 @@ async function api(path, method = "GET", body) {
   return data;
 }
 
+// ---------- toast ----------
+// Small transient confirmation pinned to the corner of the screen. Used after actions
+// whose effect is off-screen (e.g. a row appended to a long list) so the click never
+// looks like it did nothing.
+let toastTimer = null;
+function toast(msg, kind = "ok") {
+  const host = document.body || document.documentElement;
+  if (!host) return;
+  let el = host.querySelector ? host.querySelector("#toast") : null;
+  if (!el) { el = document.createElement("div"); el.id = "toast"; host.appendChild(el); }
+  el.className = "toast " + kind + " show";
+  el.textContent = msg;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.classList.remove("show"); }, 2600);
+}
+
 // ---------- auth screen ----------
 function setMode(m) {
   mode = m;
@@ -558,23 +574,9 @@ async function campaigns() {
 }
 
 async function templates() {
-  let ts = [];
-  let custom = [];
-  let err = null;
-  [ts, custom] = await Promise.all([
-    api("/templates").catch((e) => { err = e.message; return []; }),
-    api("/templates/custom").catch(() => []),
-  ]);
   $("#view").innerHTML = `
     <div class="panel"><h3>Your templates</h3>
-      <p class="empty">${err
-        ? `Could not reach Helo to load templates — ${esc(err)}`
-        : cfg.heloConnected
-          ? "Templates are read from your Helo business account."
-          : "Helo is not connected yet, so this is a placeholder list. Connect the Helo API (helo.js) to load your real approved templates."}</p>
-      ${list(ts, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
-        <small>${esc(tplStatus(t) || "Approved")}</small></div>
-        <span class="tag">${esc(tplStatus(t) || "ready")}</span></div>`, "No templates available.")}</div>
+      <div id="t-helo"><p class="empty">Loading Helo templates…</p></div></div>
     <div class="panel"><h3>Add your own</h3>
       <p class="empty">Type in a template that already exists in Helo (name and language must match). It shows up in the campaign builder straight away, even while the Helo template list is unreachable.</p>
       <div class="row">
@@ -584,21 +586,60 @@ async function templates() {
       <p id="t-err" class="err"></p>
       <button id="t-add" class="btn">Add template</button></div>
     <div class="panel"><h3>Your added templates</h3>
-      ${list(custom, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
-        <small>${esc(t.category)} · ${esc(t.language)}</small></div>
-        <button class="btn ghost" data-del="${t.id}">Delete</button></div>`, "None added yet.")}</div>`;
+      <div id="t-custom"><p class="empty">Loading…</p></div></div>`;
   $("#t-add").onclick = async () => {
     $("#t-err").textContent = "";
+    const name = $("#t-name").value.trim();
+    if (!name) { $("#t-err").textContent = "Give the template a name."; return; }
+    const btn = $("#t-add");
+    btn.disabled = true;
     try {
-      await api("/templates/custom", "POST", { name: $("#t-name").value, category: $("#t-cat").value, language: $("#t-lang").value });
-      templates();
-    } catch (e) { $("#t-err").textContent = e.message; }
+      await api("/templates/custom", "POST", { name, category: $("#t-cat").value, language: $("#t-lang").value });
+      $("#t-name").value = "";
+      toast(`Template "${name}" added`);
+      await loadCustom();
+    } catch (e) { $("#t-err").textContent = e.message; toast(e.message, "err"); }
+    finally { btn.disabled = false; }
   };
-  document.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
-    $("#t-err").textContent = "";
-    try { await api("/templates/custom/" + b.dataset.del, "DELETE"); templates(); }
-    catch (e) { $("#t-err").textContent = e.message; }
-  }));
+  // The Helo list can hang for many seconds when the host is unreachable, so each panel
+  // loads on its own. Adding or deleting a custom template never waits on Helo.
+  loadCustom();
+  loadHelo();
+}
+
+async function loadCustom() {
+  const box = $("#t-custom");
+  if (!box) return;
+  try {
+    const items = await api("/templates/custom");
+    const rows = items.slice().sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")));
+    box.innerHTML = list(rows, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
+      <small>${esc(t.category)} · ${esc(t.language)}</small></div>
+      <button class="btn ghost" data-del="${t.id}">Delete</button></div>`, "None added yet.");
+    box.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
+      const t = items.find((x) => String(x.id) === String(b.dataset.del));
+      b.disabled = true;
+      try {
+        await api("/templates/custom/" + b.dataset.del, "DELETE");
+        toast(`Template "${t ? tplName(t) : "template"}" deleted`);
+        await loadCustom();
+      } catch (e) { toast(e.message, "err"); b.disabled = false; }
+    }));
+  } catch (e) { box.innerHTML = `<p class="empty err">${esc(e.message)}</p>`; }
+}
+
+async function loadHelo() {
+  const box = $("#t-helo");
+  if (!box) return;
+  try {
+    const ts = await api("/templates");
+    box.innerHTML = list(ts, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
+      <small>${esc(tplStatus(t) || "Approved")}</small></div>
+      <span class="tag">${esc(tplStatus(t) || "ready")}</span></div>`, "No templates available.");
+  } catch (e) {
+    box.innerHTML = `<p class="empty">Could not reach Helo to load templates — ${esc(e.message)}.</p>
+      <p class="empty">Add your own below; it appears in the campaign builder right away.</p>`;
+  }
 }
 
 async function developers() {

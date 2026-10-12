@@ -186,3 +186,9 @@ input[type=file]{padding:8px;font-size:14px}
 .qr img{border:1px solid var(--line);border-radius:10px;background:#fff}
 .modal-card code{background:#f2f4f8;border-radius:4px;padding:1px 5px;font-size:13px}
 a.btn{display:inline-block;text-align:center;text-decoration:none}
+.btn:disabled{opacity:.6;cursor:default;transform:none;box-shadow:none}
+.toast{position:fixed;right:22px;bottom:22px;z-index:70;max-width:min(360px,90vw);padding:12px 16px;border-radius:11px;
+  color:#fff;font-weight:600;font-size:14px;box-shadow:0 14px 34px rgba(15,23,42,.32);background:linear-gradient(135deg,#0f9d58 0%,#0b7b45 100%);
+  opacity:0;transform:translateY(14px);pointer-events:none;transition:opacity .2s ease,transform .2s ease}
+.toast.show{opacity:1;transform:translateY(0)}
+.toast.err{background:linear-gradient(135deg,#d9534f 0%,var(--red) 100%)}
