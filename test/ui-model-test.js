@@ -176,6 +176,11 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("reseller dashboard counts active users", /<b>1<\/b><span>Active users/.test(rDash), rDash.slice(0, 300));
   check("reseller dashboard counts inactive users", /<b>1<\/b><span>Inactive users/.test(rDash), rDash.slice(0, 300));
   check("reseller dashboard shows wallet credits", /<b>6<\/b><span>Wallet credits/.test(rDash), rDash.slice(0, 300));
+  check("reseller dashboard counts campaigns sent", /<b>2<\/b><span>Campaigns sent/.test(rDash), rDash.slice(0, 500));
+  check("reseller dashboard sums recipients reached (4)", /<b>4<\/b><span>Recipients reached/.test(rDash), rDash.slice(0, 500));
+  check("reseller dashboard shows order revenue (₹1,500)", /₹1,500/.test(rDash), rDash.slice(0, 500));
+  check("reseller dashboard flags a waiting order", /1 order waiting/.test(rDash), rDash.slice(0, 500));
+  check("reseller dashboard lists recent campaigns", /Recent campaigns/.test(rDash) && /Diwali sale/.test(rDash), rDash.slice(0, 700));
   check("reseller dashboard renders the WhatsApp user table", /id="u-table"/.test(rDash) && /Buyer/.test(t.inner("#u-table")), t.inner("#u-table").slice(0, 200));
   check("reseller user table marks an inactive user", /Inactive/.test(t.inner("#u-table")), t.inner("#u-table").slice(0, 200));
 

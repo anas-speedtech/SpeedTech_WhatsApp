@@ -295,26 +295,40 @@ async function adminDashboard() {
 let dashChannel = "WhatsApp";
 const CHANNELS = ["WhatsApp", "SMS", "RCS"];
 async function resellerDashboard() {
-  const [stats, us] = await Promise.all([api("/reseller/stats"), api("/reseller/users")]);
+  const [stats, us, cs, os] = await Promise.all([
+    api("/reseller/stats"), api("/reseller/users"), api("/campaigns"), api("/orders")]);
   const isWA = dashChannel === "WhatsApp";
   const rows = us.map((u) => ({ ...u, channel: "WhatsApp", credits: u.credits || 0 }));
+  const reached = cs.reduce((n, c) => n + (c.total || 0), 0);
+  const live = os.filter((o) => o.status !== "cancelled");
+  const revenue = live.reduce((n, o) => n + (o.amount || 0), 0);
+  const pending = os.filter((o) => o.status === "pending");
   $("#view").innerHTML = `
     <div class="tabs">${CHANNELS.map((c) => `<button class="tab${c === dashChannel ? " on" : ""}" data-tab="${c}">${c}</button>`).join("")}</div>
     <div class="stats">
-      ${card(stats.users, "Total users")}
-      ${card(stats.active, "Active users")}
-      ${card(stats.inactive, "Inactive users")}
       ${card(me.credits, "Wallet credits")}
       ${card(stats.creditsUsedReseller, "Credits used")}
       ${card(stats.creditsPurchased + stats.creditsAssignedReseller, "Credits purchased")}
+      ${card(cs.length, "Campaigns sent")}
+      ${card(reached, "Recipients reached")}
+      ${card(money(revenue), "Order revenue")}
+      ${card(stats.users, "Total users")}
+      ${card(stats.active, "Active users")}
+      ${card(stats.inactive, "Inactive users")}
     </div>
+    ${pending.length ? `<div class="panel"><div class="item"><div><strong>${pending.length} order${pending.length > 1 ? "s" : ""} waiting</strong>
+      <small>Review and fulfil them for your customers</small></div><button class="btn" data-go="Orders">Review orders</button></div></div>` : ""}
     ${!isWA ? `<div class="panel"><h3>${dashChannel} campaigns</h3><p class="empty">${dashChannel} is not enabled on this account yet — only WhatsApp is live. Nothing to show here for now.</p></div>` : `
+    <div class="panel"><h3>Recent campaigns</h3>${list(cs.slice(0, 5), (c) =>
+      `<div class="item"><div><strong>${esc(c.name)}</strong><small>${esc(c.templateName)} · ${c.total} recipients · ${new Date(c.at).toLocaleDateString()}</small></div>${statusTag(c.status)}</div>`,
+      "No campaigns yet. <button class='link' data-go='Campaigns'>Send your first one</button>.")}</div>
     <div class="panel"><h3>Your users</h3>
       <div class="row"><input id="u-q" placeholder="Search name, email or phone"><select id="u-status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
       <div id="u-table"></div>
       <p class="empty">Credits are assigned to your buyers in an upcoming release, so user credits read 0 for now.</p>
     </div>`}`;
   document.querySelectorAll("[data-tab]").forEach((b) => (b.onclick = () => { dashChannel = b.dataset.tab; resellerDashboard(); }));
+  document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
   if (!isWA) return;
   const draw = () => {
     const q = $("#u-q").value.trim().toLowerCase();
