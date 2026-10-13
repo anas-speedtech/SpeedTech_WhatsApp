@@ -45,11 +45,21 @@ const RESPONSES = {
     { id: 1, at: AT, type: "purchase", fromId: null, toId: 9, credits: 10, amountPaise: 1000, note: "approved" },
   ],
   "/api/admin/clients": [
-    { id: 1, name: "Atulya", email: "a@x.com", role: "client", phone: "+919876543210", credits: 6, contacts: 2, campaigns: 2,
+    { id: 1, name: "Atulya", email: "a@x.com", role: "client", phone: "+919876543210", credits: 6, contacts: 2, campaigns: 2, templates: 1,
       creditsPurchased: 5, creditsAssigned: 1, creditsUsed: 4, revenuePaise: 2000, membership: { state: "active", expiresAt: AT }, active: true },
-    { id: 3, name: "Rival", email: "r@x.com", role: "client", phone: "", credits: 0, contacts: 0, campaigns: 0,
+    { id: 3, name: "Rival", email: "r@x.com", role: "client", phone: "", credits: 0, contacts: 0, campaigns: 0, templates: 0,
       creditsPurchased: 0, creditsAssigned: 0, creditsUsed: 0, revenuePaise: 0, membership: { state: "none" }, active: false },
   ],
+  "/api/admin/templates": [
+    { id: 7, name: "my_hand_template", category: "MARKETING", language: "en", custom: true, status: "MANUAL", at: AT, ownerId: 1, owner: "Atulya", email: "a@x.com" },
+  ],
+  "/api/admin/clients/1/wallet": {
+    client: { id: 1, name: "Atulya", email: "a@x.com", role: "client", credits: 6, phone: "+919876543210" },
+    summary: { id: 1, name: "Atulya", email: "a@x.com", credits: 6, creditsPurchased: 5, creditsAssigned: 1, creditsUsed: 4,
+      contacts: 2, campaigns: 2, templates: 1, membership: { state: "active", expiresAt: AT }, active: true },
+    txns: [{ id: 1, at: AT, type: "purchase", fromId: null, toId: 1, credits: 10, note: "approved" }],
+    requests: [{ id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending", method: "upi" }],
+  },
   "/api/admin/requests": [
     { id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending",
       client: { id: 1, name: "Atulya", email: "a@x.com" }, plan: null },
@@ -111,8 +121,8 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("brand applied", sandbox.document.title === "TestBrand", sandbox.document.title);
 
   // ---------------- client ----------------
-  check("client nav is exactly Dashboard/Campaigns/Contacts/Wallet/Templates/Shortlinks/Settings/Developers",
-    JSON.stringify(labels("client")) === JSON.stringify(["Dashboard", "Campaigns", "Contacts", "Wallet", "Templates", "Shortlinks", "Settings", "Developers"]), labels("client").join(", "));
+  check("client nav is exactly Dashboard/Campaigns/Contacts/Wallet/Templates/Shortlinks/WhatsApp/Settings/Developers",
+    JSON.stringify(labels("client")) === JSON.stringify(["Dashboard", "Campaigns", "Contacts", "Wallet", "Templates", "Shortlinks", "WhatsApp", "Settings", "Developers"]), labels("client").join(", "));
   check("client nav is flat (no collapsible sections)",
     topOf("client").every((l) => !t.NAV.client.find((s) => s.label === l && s.children)), topOf("client").join(", "));
   check("client credit box is visible", !t.creditHidden(), "hidden");
@@ -169,8 +179,14 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
 
   t.go("Settings"); await wait();
   const cSet = t.view();
-  check("client settings expose a sender-number field", /id="s-phone"/.test(cSet) && /\+919876543210/.test(cSet), cSet.slice(0, 300));
+  check("client settings link to WhatsApp instead of a raw sender field", /data-go="WhatsApp"/.test(cSet) && !/id="s-phone"/.test(cSet), cSet.slice(0, 300));
   check("client settings show the membership", /membership/i.test(cSet) && /Active until/.test(cSet), cSet.slice(0, 400));
+
+  t.go("WhatsApp"); await wait();
+  const cWa = t.view();
+  check("client WhatsApp page has a connect field", /id="wa-phone"/.test(cWa) && /\+919876543210/.test(cWa), cWa.slice(0, 400));
+  check("client WhatsApp page shows connected status", /Connected/i.test(cWa), cWa.slice(0, 400));
+  check("client WhatsApp page has a save button", /id="wa-save"[^>]*>Save &amp; connect/.test(cWa), cWa.slice(0, 400));
 
   t.go("Developers"); await wait();
   const dev = t.view();
@@ -185,9 +201,13 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
 
   // ---------------- admin ----------------
   ME = ADMIN; await t.boot(); await wait();
-  check("admin nav is exactly Dashboard/Clients/Payments/Pricing/Settings",
-    JSON.stringify(labels("admin")) === JSON.stringify(["Dashboard", "Clients", "Payments", "Pricing", "Settings"]), labels("admin").join(", "));
-  check("admin nav has no collapsible sections", topOf("admin").every((l) => !t.NAV.admin.find((s) => s.label === l && s.children)), topOf("admin").join(", "));
+  check("admin nav is exactly Dashboard/User management/Payments/Pricing/WhatsApp/Settings",
+    JSON.stringify(topOf("admin")) === JSON.stringify(["Dashboard", "User management", "Payments", "Pricing", "WhatsApp", "Settings"]), topOf("admin").join(", "));
+  check("admin nav flattens to Dashboard/Management/User wallet/Payments/Pricing/WhatsApp/Settings",
+    JSON.stringify(labels("admin")) === JSON.stringify(["Dashboard", "Management", "User wallet", "Payments", "Pricing", "WhatsApp", "Settings"]), labels("admin").join(", "));
+  const um = t.NAV.admin.find((s) => s.label === "User management");
+  check("admin has a collapsible User management section with Management + User wallet",
+    Boolean(um && um.children) && um.children.map((c) => c.label).join("/") === "Management/User wallet", um ? (um.children || []).map((c) => c.label).join("/") : "none");
   check("admin credit box is hidden", t.creditHidden(), "visible");
   check("admin is labelled Platform owner", /Platform owner/.test(t.roleLabel()), t.roleLabel());
   const aDash = t.view();
@@ -196,7 +216,7 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("admin dashboard sums credits held", /<b>6<\/b><span>Credits held/.test(aDash), aDash.slice(0, 300));
   check("admin dashboard shows client balances", /Atulya/.test(aDash), aDash.slice(0, 400));
 
-  t.go("Clients"); await wait();
+  t.go("Management"); await wait();
   const rl = t.inner("#r-list");
   check("clients page lists accounts", /Atulya/.test(rl) && /Rival/.test(rl), rl.slice(0, 300));
   check("clients page shows credits", /6 credits/.test(rl) || /data-add="1"/.test(rl), rl.slice(0, 400));
@@ -205,6 +225,18 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("clients page shows membership and usage", /Active/.test(rl) && /used/.test(rl), rl.slice(0, 500));
   check("clients page has an error target", /id="p-err"/.test(t.view()), t.view().slice(0, 120));
   check("admin has no product or campaign tabs", !labels("admin").some((l) => ["Products", "Campaigns", "Store", "Broadcast"].includes(l)), labels("admin").join(", "));
+
+  t.go("User wallet"); await wait();
+  const uw = t.view();
+  check("user wallet page lists clients to pick", /id="uw-client"/.test(uw) && /Atulya/.test(uw), uw.slice(0, 400));
+  check("user wallet shows credit controls", /id="uw-add"/.test(t.inner("#uw-body")) && /id="uw-sub"/.test(t.inner("#uw-body")), t.inner("#uw-body").slice(0, 500));
+  check("user wallet shows the ledger and payments", /Credit ledger/.test(t.inner("#uw-body")) && /Payment history/.test(t.inner("#uw-body")), t.inner("#uw-body").slice(0, 400));
+
+  t.go("WhatsApp"); await wait();
+  const awa = t.view();
+  check("admin WhatsApp page manages client templates", /id="aw-name"/.test(awa) && /id="aw-add"/.test(awa) && /my_hand_template/.test(awa), awa.slice(0, 600));
+  check("admin WhatsApp page lists client sender numbers", /id="wa-1"/.test(awa) && /data-wa="1"/.test(awa), awa.slice(0, 700));
+  check("admin WhatsApp page reports the provider", /WhatsApp connection/.test(awa) && /Approved templates/.test(awa), awa.slice(0, 400));
 
   t.go("Payments"); await wait();
   const pay = t.view();

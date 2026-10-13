@@ -64,14 +64,19 @@ const NAV = {
     { label: "Wallet", icon: "wallet", fn: wallet },
     { label: "Templates", icon: "templates", fn: templates },
     { label: "Shortlinks", icon: "shortlinks", fn: coming("Shortlinks", "Tracked links you can drop into a template to measure clicks. Not built yet (TODO 4).") },
+    { label: "WhatsApp", icon: "broadcast", fn: clientWhatsapp },
     { label: "Settings", icon: "settings", fn: settings },
     { label: "Developers", icon: "developers", fn: developers },
   ],
   admin: [
     { label: "Dashboard", icon: "dashboard", fn: dashboard },
-    { label: "Clients", icon: "customers", fn: clients },
+    { label: "User management", icon: "customers", children: [
+      { label: "Management", fn: clients },
+      { label: "User wallet", fn: userWallet },
+    ] },
     { label: "Payments", icon: "payments", fn: payments },
     { label: "Pricing", icon: "settings", fn: pricing },
+    { label: "WhatsApp", icon: "broadcast", fn: adminWhatsapp },
     { label: "Settings", icon: "settings", fn: settings },
   ],
 };
@@ -245,7 +250,7 @@ async function adminDashboard() {
     </div>
     <div class="panel"><h3>Client balances</h3>${list(rs, (r) =>
       `<div class="item"><div><strong>${esc(r.name)}</strong><small>${esc(r.email)}</small></div>
-        <div class="row-inline"><span class="tag">${r.credits} credits</span><button class="btn" data-go="Clients">Manage</button></div></div>`,
+        <div class="row-inline"><span class="tag">${r.credits} credits</span><button class="btn" data-go="Management">Manage</button></div></div>`,
       "No clients yet.")}</div>`;
   document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
 }
@@ -503,7 +508,8 @@ async function developers() {
       <div class="item"><div><strong>Contacts</strong><small>GET, POST, PUT, DELETE /api/client/contacts</small></div><span class="tag">live</span></div>
       <div class="item"><div><strong>Campaigns</strong><small>GET, POST /api/campaigns</small></div><span class="tag">live</span></div>
       <div class="item"><div><strong>Templates</strong><small>GET /api/templates · GET, POST, DELETE /api/templates/custom</small></div><span class="tag">live</span></div>
-      <div class="item"><div><strong>Admin</strong><small>GET /api/admin/clients · POST /api/admin/clients/:id/credits</small></div><span class="tag">live</span></div>
+      <div class="item"><div><strong>Admin</strong><small>GET /api/admin/clients · POST /api/admin/clients/:id/credits · GET /api/admin/clients/:id/wallet</small></div><span class="tag">live</span></div>
+      <div class="item"><div><strong>Client templates (admin)</strong><small>GET, POST, DELETE /api/admin/templates</small></div><span class="tag">live</span></div>
       <div class="item"><div><strong>Delivery receipts</strong><small>Helo DLR webhooks</small></div><span class="tag">planned</span></div>
     </div>
     <div class="panel"><h3>Coming soon</h3><p class="empty">A public API key, per-user webhooks and a documentation site are not built yet (TODO 3, TODO 5).</p></div>`;
@@ -547,6 +553,132 @@ async function clients() {
   $("#r-q").oninput = draw;
   $("#r-status").onchange = draw;
   draw();
+}
+
+// ---------- admin: one client's wallet on a single screen ----------
+async function userWallet() {
+  const rs = await api("/admin/clients");
+  $("#view").innerHTML = `<div class="panel"><h3>User wallet</h3>
+    <p class="empty">Pick a client to see their balance, credit ledger and payment history, and to top up or remove credits.</p>
+    <div class="row"><select id="uw-client">${rs.length ? rs.map((r) => `<option value="${r.id}">${esc(r.name)} — ${esc(r.email)}</option>`).join("") : `<option value="">No clients yet</option>`}</select></div>
+    <div id="uw-body"></div>
+    <p id="p-err" class="err"></p></div>`;
+  const load = async () => {
+    const id = $("#uw-client").value || (rs[0] && String(rs[0].id));
+    const box = $("#uw-body");
+    if (!id) { box.innerHTML = `<p class="empty">No clients yet.</p>`; return; }
+    box.innerHTML = `<div class="splash-inline">${DOTS}</div>`;
+    const w = await api("/admin/clients/" + id + "/wallet");
+    const m = w.summary.membership || { state: "none" };
+    const mTag = m.state === "active" ? `<span class="tag fulfilled">Active until ${new Date(m.expiresAt).toLocaleDateString()}</span>`
+      : m.state === "expired" ? `<span class="tag cancelled">Expired</span>` : `<span class="tag none">No plan</span>`;
+    const signed = (t) => (t.toId === w.client.id ? "+" + t.credits : "-" + t.credits);
+    box.innerHTML = `
+      <div class="stats">
+        ${card(w.client.credits, "Credit balance")}
+        ${card(w.summary.creditsPurchased, "Credits bought")}
+        ${card(w.summary.creditsAssigned, "Credits granted")}
+        ${card(w.summary.creditsUsed, "Credits used")}
+      </div>
+      <div class="item"><div><strong>${esc(w.client.name)}</strong><small>${esc(w.client.email)}${w.client.phone ? " · " + esc(w.client.phone) : " · no sender number"}</small></div>${mTag}</div>
+      <div class="row"><input class="mini" id="uw-amt" type="number" placeholder="100" min="-999999">
+        <button class="btn" id="uw-add">Add credits</button>
+        <button class="btn ghost" id="uw-sub">Remove credits</button></div>
+      <div class="panel"><h3>Credit ledger</h3>${list(w.txns, (t) => `<div class="item">
+        <div><strong>${esc(t.note || t.type)}</strong><small>${new Date(t.at).toLocaleString()} · ${esc(t.type)}</small></div>
+        <span class="tag ${t.credits > 0 ? "fulfilled" : "none"}">${signed(t)} credits</span></div>`, "Nothing yet.")}</div>
+      <div class="panel"><h3>Payment history</h3>${list(w.requests, (r) => `<div class="item">
+        <div><strong>${r.kind === "credits" ? r.credits + " credits" : (r.plan ? esc(r.plan.name) + " membership" : "Membership")}</strong>
+          <small>${new Date(r.at).toLocaleString()} · ${rupees(r.amountPaise)}${r.method ? " · " + esc(r.method) : ""}</small></div>
+        ${statusTag(r.status)}</div>`, "Nothing yet.")}</div>`;
+    const grant = async (sign) => {
+      const n = Number($("#uw-amt").value.trim());
+      if (!Number.isInteger(n) || n === 0) { $("#p-err").textContent = "Enter a whole number first"; return; }
+      $("#p-err").textContent = "";
+      try { await api("/admin/clients/" + id + "/credits", "POST", { amount: sign * Math.abs(n) }); load(); }
+      catch (e) { $("#p-err").textContent = e.message; }
+    };
+    $("#uw-add").onclick = () => grant(1);
+    $("#uw-sub").onclick = () => grant(-1);
+  };
+  $("#uw-client").onchange = load;
+  if (rs.length) await load();
+  else $("#uw-body").innerHTML = `<p class="empty">No clients yet.</p>`;
+}
+
+// ---------- admin: manage WhatsApp across every client ----------
+async function adminWhatsapp() {
+  const [rs, tpls, helo] = await Promise.all([
+    api("/admin/clients"),
+    api("/admin/templates"),
+    api("/helo/status").catch((e) => ({ ok: false, reason: e.message })),
+  ]);
+  const tag = (ok, yes, no) => `<span class="tag ${ok ? "fulfilled" : "cancelled"}">${ok ? yes : no}</span>`;
+  const ownerName = (t) => t.owner || (rs.find((r) => r.id === t.ownerId) || {}).name || "Client";
+  $("#view").innerHTML = `
+    <div class="panel"><h3>WhatsApp connection</h3>
+      <div class="item"><div><strong>Provider</strong><small>${esc(helo.baseUrl || "Helo API")}</small></div>${tag(helo.ok, "Working", "Not working")}</div>
+      <div class="item"><div><strong>Credentials</strong><small>${esc(helo.reason || helo.error || "signed in and reachable")}</small></div>${tag(helo.ok, "OK", "Check .env")}</div>
+      ${helo.ok ? `<div class="item"><div><strong>Approved templates</strong><small>${helo.approved} approved of ${helo.templateCount} total</small></div>${tag(helo.approved > 0, "Ready", "None approved")}</div>` : ""}
+    </div>
+    <div class="panel"><h3>Client sender numbers</h3>
+      <p class="empty">Each client sends campaigns from their own connected WhatsApp number. Fix one here if a client cannot set it themselves.</p>
+      ${list(rs, (r) => `<div class="item"><div><strong>${esc(r.name)}</strong><small>${esc(r.email)} · ${r.templates} template(s)</small></div>
+        <div class="row-inline"><input class="mini" id="wa-${r.id}" value="${esc(r.phone || "")}" placeholder="+919876543210">
+        <button class="btn" data-wa="${r.id}">Save number</button></div></div>`, "No clients yet.")}</div>
+    <div class="panel"><h3>Add a template for a client</h3>
+      <div class="row"><select id="aw-client">${rs.map((r) => `<option value="${r.id}">${esc(r.name)}</option>`).join("")}</select>
+        <input id="aw-name" placeholder="Template name, e.g. ismotors_client">
+        <select id="aw-cat"><option>MARKETING</option><option>UTILITY</option><option>AUTHENTICATION</option></select>
+        <input id="aw-lang" placeholder="Language" value="en"></div>
+      <p id="aw-err" class="err"></p><button id="aw-add" class="btn">Add template</button></div>
+    <div class="panel"><h3>Client templates</h3>${list(tpls, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
+      <small>${esc(ownerName(t))} · ${esc(t.category)} · ${esc(t.language)}</small></div>
+      <button class="btn ghost danger" data-atdel="${t.id}">Delete</button></div>`, "No client templates yet.")}</div>
+    <p id="p-err" class="err"></p>`;
+  document.querySelectorAll("[data-wa]").forEach((b) => (b.onclick = async () => {
+    try { await api("/admin/clients/" + b.dataset.wa, "PATCH", { phone: $("#wa-" + b.dataset.wa).value.trim() }); toast("Sender number saved"); adminWhatsapp(); }
+    catch (e) { $("#p-err").textContent = e.message; }
+  }));
+  $("#aw-add").onclick = async () => {
+    $("#aw-err").textContent = "";
+    const name = $("#aw-name").value.trim();
+    if (!name) { $("#aw-err").textContent = "Give the template a name."; return; }
+    try {
+      await api("/admin/templates", "POST", { ownerId: +$("#aw-client").value, name, category: $("#aw-cat").value, language: $("#aw-lang").value });
+      toast("Template added"); adminWhatsapp();
+    } catch (e) { $("#aw-err").textContent = e.message; }
+  };
+  document.querySelectorAll("[data-atdel]").forEach((b) => (b.onclick = async () => {
+    if (!confirm("Delete this template?")) return;
+    try { await api("/admin/templates/" + b.dataset.atdel, "DELETE"); toast("Template deleted"); adminWhatsapp(); }
+    catch (e) { $("#p-err").textContent = e.message; }
+  }));
+}
+
+// ---------- client: connect the WhatsApp number campaigns are sent from ----------
+async function clientWhatsapp() {
+  const connected = Boolean((me.phone || "").trim());
+  $("#view").innerHTML = `
+    <div class="panel"><h3>Connect your WhatsApp</h3>
+      <p class="empty">Campaigns are sent from this WhatsApp number. Enter it with the country code and save — every campaign then goes out from it. Leave it empty to fall back to the platform's default sender.</p>
+      <div class="item"><div><strong>Status</strong><small>${connected ? "Connected as " + esc(me.phone) : "Not connected yet"}</small></div>
+        ${connected ? '<span class="tag fulfilled">Connected</span>' : '<span class="tag cancelled">Not connected</span>'}</div>
+      <div class="row"><input id="wa-phone" value="${esc(me.phone || "")}" placeholder="+919876543210">
+        <button id="wa-save" class="btn">Save &amp; connect</button></div>
+      <p id="wa-err" class="err"></p></div>
+    <div class="panel"><h3>Provider</h3>
+      <div class="item"><div><strong>${esc(cfg.brand)} WhatsApp API</strong><small>Bulk sending runs through Helo.</small></div>
+        <span class="tag ${cfg.heloConnected ? "fulfilled" : "cancelled"}">${cfg.heloConnected ? "Connected" : "Not connected"}</span></div>
+      <p class="empty">Templates live on the <button class='link' data-go='Templates'>Templates</button> page.</p></div>`;
+  document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
+  $("#wa-save").onclick = async () => {
+    $("#wa-err").textContent = "";
+    const btn = $("#wa-save");
+    btn.disabled = true;
+    try { me = await api("/me", "PATCH", { phone: $("#wa-phone").value.trim() }); toast("Sender number saved"); showCredits(); clientWhatsapp(); }
+    catch (e) { $("#wa-err").textContent = e.message; btn.disabled = false; }
+  };
 }
 
 // ---------- client wallet: buy credits, renew membership, see the ledger ----------
@@ -730,21 +862,16 @@ async function settings() {
       <div class="item"><div><strong>${esc(me.name)}</strong><small>${esc(me.email)}</small></div>
         <span class="tag">${isClient ? "Client" : "Platform owner"}</span></div>
     </div>
-    ${isClient ? `<div class="panel"><h3>Your sender number</h3>
-      <p class="empty">Campaigns go out from this WhatsApp number. Include the country code. Leave it empty to use the platform's default sender.</p>
-      <div class="row"><input id="s-phone" value="${esc(me.phone)}" placeholder="+919876543210"></div>
-      <p id="s-perr" class="err"></p><button id="s-psave" class="btn">Save sender number</button></div>
+    ${isClient ? `<div class="panel"><h3>WhatsApp</h3>
+      <div class="item"><div><strong>${me.phone ? esc(me.phone) : "No sender number connected"}</strong>
+        <small>Campaigns go out from this number.</small></div>
+        <button class="btn" data-go="WhatsApp">Manage</button></div></div>
     <div class="panel"><h3>Your membership</h3>
       <div class="item"><div><strong>${mLabel}</strong>
         <small>An active membership is required before a campaign can be sent.</small></div>
         <button class="btn" data-go="Wallet">Go to wallet</button></div></div>`
     : `<div class="panel"><h3>Admin account</h3>
       <p class="empty">This account is created from ADMIN_EMAIL and ADMIN_PASSWORD in .env on first boot. Change the password there to change it here.</p></div>`}`;
-  if ($("#s-psave")) $("#s-psave").onclick = async () => {
-    $("#s-perr").textContent = "";
-    try { me = await api("/me", "PATCH", { phone: $("#s-phone").value.trim() }); toast("Sender number saved"); settings(); }
-    catch (e) { $("#s-perr").textContent = e.message; }
-  };
   document.querySelectorAll("[data-go]").forEach((b) => (b.onclick = () => go(b.dataset.go)));
 }
 boot();

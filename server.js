@@ -94,6 +94,7 @@ const adminClient = (u) => ({
   membership: billing.membershipState(u),
   campaigns: db.campaigns.filter((c) => c.clientId === u.id).length,
   contacts: db.contacts.filter((c) => c.ownerId === u.id).length,
+  templates: db.templates.filter((t) => t.ownerId === u.id).length,
   creditsPurchased: txnSum("purchase", "toId", u.id),
   creditsAssigned: txnSum("assign_reseller", "toId", u.id),
   creditsUsed: txnSum("spend", "fromId", u.id),
@@ -209,6 +210,28 @@ app.post("/api/templates/custom", auth(), (req, res) => {
 });
 app.delete("/api/templates/custom/:id", auth(), (req, res) => {
   const i = db.templates.findIndex((t) => t.id === +req.params.id && t.ownerId === req.user.id);
+  if (i < 0) return res.status(404).json({ error: "Template not found" });
+  db.templates.splice(i, 1); save(); res.json({ ok: true });
+});
+
+// ---- platform owner: manage every client's WhatsApp templates from one place ----
+const adminTemplate = (t) => {
+  const o = db.users.find((u) => u.id === t.ownerId);
+  return { ...customTemplate(t), ownerId: t.ownerId, owner: o ? o.name : "", email: o ? o.email : "" };
+};
+app.get("/api/admin/templates", auth("admin"), (req, res) => res.json(db.templates.map(adminTemplate)));
+app.post("/api/admin/templates", auth("admin"), (req, res) => {
+  const owner = db.users.find((u) => u.id === +req.body.ownerId && u.role === "client");
+  if (!owner) return res.status(400).json({ error: "Choose a client" });
+  const name = String(req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Template name is required" });
+  const t = { id: id(), ownerId: owner.id, name: name.slice(0, 120),
+    category: String(req.body.category || "MARKETING").trim().toUpperCase() || "MARKETING",
+    language: String(req.body.language || "en").trim() || "en", at: new Date().toISOString() };
+  db.templates.push(t); save(); res.json(adminTemplate(t));
+});
+app.delete("/api/admin/templates/:id", auth("admin"), (req, res) => {
+  const i = db.templates.findIndex((t) => t.id === +req.params.id);
   if (i < 0) return res.status(404).json({ error: "Template not found" });
   db.templates.splice(i, 1); save(); res.json({ ok: true });
 });
@@ -336,6 +359,31 @@ app.post("/api/admin/clients/:id/credits", auth("admin"), (req, res) => {
     costPaise: billing.creditsCost(amount, db.settings.creditBuyPricePaise), refType: "manual", note: "admin grant" });
   else billing.logTxn(db, id, { type: "adjust", fromId: u.id, toId: req.user.id, credits: -amount, refType: "manual", note: "admin removal" });
   save(); res.json({ ...publicUser(u), adminClient: adminClient(u) });
+});
+
+// the platform owner can fix a client's connected sender number for them
+app.patch("/api/admin/clients/:id", auth("admin"), (req, res) => {
+  const u = db.users.find((x) => x.id === +req.params.id && x.role === "client");
+  if (!u) return res.status(404).json({ error: "Client not found" });
+  if (req.body.phone !== undefined) {
+    const p = req.body.phone === "" ? "" : normalizePhone(req.body.phone);
+    if (p === null) return res.status(400).json({ error: "Enter a valid phone number with country code (10-15 digits)" });
+    u.phone = p;
+  }
+  if (req.body.name) u.name = String(req.body.name).slice(0, 80);
+  if (req.body.active !== undefined) u.active = Boolean(req.body.active);
+  save(); res.json(adminClient(u));
+});
+
+// a client's whole wallet on one screen: balance, ledger and payment history
+app.get("/api/admin/clients/:id/wallet", auth("admin"), (req, res) => {
+  const u = db.users.find((x) => x.id === +req.params.id && x.role === "client");
+  if (!u) return res.status(404).json({ error: "Client not found" });
+  res.json({
+    client: publicUser(u), summary: adminClient(u),
+    txns: db.txns.filter((t) => t.fromId === u.id || t.toId === u.id).reverse(),
+    requests: db.requests.filter((r) => r.clientId === u.id).map(requestView).reverse(),
+  });
 });
 
 // ---- pricing & membership plans ----

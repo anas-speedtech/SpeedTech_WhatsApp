@@ -217,6 +217,40 @@ const reg = (b) => call("/api/auth/register", "POST", b);
   const cdel = await call("/api/templates/custom/" + cadd.data.id, "DELETE", null, T1);
   ok("owner deletes the hand-added template", cdel.status === 200 && cdel.data.ok === true, cdel.data);
 
+  // ---------- platform owner: manage a client's templates, sender number and wallet ----------
+  const atDenied = await call("/api/admin/templates", "GET", null, T1);
+  ok("a client cannot list every client's templates (403)", atDenied.status === 403, atDenied);
+  const awadd = await call("/api/admin/templates", "POST", { ownerId: C1.id, name: "owner_made", category: "UTILITY", language: "hi" }, A);
+  ok("admin adds a template on behalf of a client", awadd.status === 200 && awadd.data.name === "owner_made"
+    && awadd.data.ownerId === C1.id && awadd.data.owner === "Client One", awadd.data);
+  const awbadowner = await call("/api/admin/templates", "POST", { ownerId: 999999, name: "x" }, A);
+  ok("admin cannot add a template for a missing client (400)", awbadowner.status === 400, awbadowner.data);
+  const awlistMine = await call("/api/templates/custom", "GET", null, T1);
+  ok("the admin-made template shows in the client's own list", awlistMine.data.length === 1 && awlistMine.data[0].name === "owner_made", awlistMine.data);
+  const awlistAll = await call("/api/admin/templates", "GET", null, A);
+  ok("admin lists every client's templates with the owner's name", awlistAll.data.length === 1 && awlistAll.data[0].email === C1.email, awlistAll.data);
+  const awdel = await call("/api/admin/templates/" + awadd.data.id, "DELETE", null, A);
+  ok("admin deletes a client's template", awdel.status === 200 && awdel.data.ok === true, awdel.data);
+
+  const phoneDenied = await call("/api/admin/clients/" + C1.id, "PATCH", { phone: "+911234567890" }, T1);
+  ok("a client cannot set a sender number through the admin route (403)", phoneDenied.status === 403, phoneDenied);
+  const phoneBad = await call("/api/admin/clients/" + C1.id, "PATCH", { phone: "12" }, A);
+  ok("admin setting an invalid sender number is rejected (400)", phoneBad.status === 400, phoneBad.data);
+  const phoneSet = await call("/api/admin/clients/" + C1.id, "PATCH", { phone: "+91 90000 22222" }, A);
+  ok("admin sets a client's sender number, normalised", phoneSet.status === 200 && phoneSet.data.phone === "+919000022222", phoneSet.data);
+  const phoneMissing = await call("/api/admin/clients/999999", "PATCH", { phone: "+919000022222" }, A);
+  ok("editing a missing client is a 404", phoneMissing.status === 404, phoneMissing.data);
+
+  const walDenied = await call("/api/admin/clients/" + C1.id + "/wallet", "GET", null, T1);
+  ok("a client cannot read the admin wallet view (403)", walDenied.status === 403, walDenied);
+  const wal = await call("/api/admin/clients/" + C1.id + "/wallet", "GET", null, A);
+  ok("admin wallet returns balance, ledger and payments", wal.status === 200 && wal.data.client.id === C1.id
+    && Array.isArray(wal.data.txns) && Array.isArray(wal.data.requests) && typeof wal.data.summary.credits === "number", wal.data && Object.keys(wal.data));
+  ok("admin wallet ledger records grants and campaign spends", wal.data.txns.length >= 2
+    && wal.data.txns.some((t) => t.type === "spend"), wal.data.txns.length);
+  const walMissing = await call("/api/admin/clients/999999/wallet", "GET", null, A);
+  ok("wallet for a missing client is a 404", walMissing.status === 404, walMissing.data);
+
   // ---------- helo health check (admin only, and it must never send) ----------
   const heloClient = await call("/api/helo/status", "GET", null, T1);
   ok("client cannot read the helo health check (403)", heloClient.status === 403, heloClient);
