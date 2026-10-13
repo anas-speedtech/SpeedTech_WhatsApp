@@ -75,7 +75,7 @@ const NAV = {
       { label: "User wallet", fn: userWallet },
     ] },
     { label: "Payments", icon: "payments", fn: payments },
-    { label: "Pricing", icon: "settings", fn: pricing },
+    { label: "Pricing", icon: "pricing", fn: pricing },
     { label: "WhatsApp", icon: "whatsapp", fn: adminWhatsapp },
     { label: "Settings", icon: "settings", fn: settings },
   ],
