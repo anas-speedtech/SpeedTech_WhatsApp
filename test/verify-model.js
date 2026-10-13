@@ -2,7 +2,6 @@ const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 const PROJ = path.join(__dirname, "..");
-const UPLOADS = path.join(PROJ, "public", "uploads");
 // This suite writes to the real data/db.json, so it snapshots first and restores on the way
 // out. Running it must never leave a developer's accounts and campaigns overwritten.
 const DB_FILE = path.join(PROJ, "data", "db.json");
@@ -29,7 +28,6 @@ const SIGNUP = "test-signup-code";
 // sign in to a real account if it is pointed at the wrong server.
 const ADMIN = { email: "test-admin@example.test",
   password: "test-admin-pw-" + require("crypto").randomBytes(8).toString("hex") };
-const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
 
 let pass = 0, fail = 0, server = null;
 const ok = (n, c, e) => { c ? pass++ : fail++; console.log((c ? "PASS " : "FAIL ") + n + (c ? "" : " -> " + JSON.stringify(e))); };
@@ -63,17 +61,6 @@ async function call(p, method, body, token) {
 }
 const reg = (b) => call("/api/auth/register", "POST", b);
 
-function productForm(fields, file) {
-  const fd = new FormData();
-  for (const [k, v] of Object.entries(fields)) fd.append(k, v);
-  if (file) fd.append("image", new Blob([file.buf], { type: file.type }), file.name);
-  return fd;
-}
-async function upload(p, method, fields, token, file) {
-  const res = await fetch(BASE + p, { method, headers: token ? { Authorization: "Bearer " + token } : {}, body: productForm(fields, file) });
-  return { status: res.status, data: await res.json().catch(() => ({})) };
-}
-
 (async () => {
   const s = Date.now();
   snapshotDb();
@@ -84,159 +71,155 @@ async function upload(p, method, fields, token, file) {
   // ---------- roles ----------
   const admin = await call("/api/auth/login", "POST", ADMIN);
   ok("admin logs in from .env seed", admin.status === 200 && admin.data.user.role === "admin", admin.data);
-  const A = admin.data.token;
+  const A = admin.data.token, ADMIN_USER = admin.data.user;
 
-  const noPhone = await reg({ name: "NoPhone", email: "np@" + s, password: "secret123", role: "user", resellerCode: "R1" });
-  ok("buyer signup without a phone is rejected (400)", noPhone.status === 400, noPhone);
-  const badPhone = await reg({ name: "BadPhone", email: "bp@" + s, password: "secret123", role: "user", resellerCode: "R1", phone: "123" });
-  ok("buyer signup with a 3-digit phone is rejected (400)", badPhone.status === 400, badPhone);
-  const spoof = await reg({ name: "Sneaky", email: "sn@" + s, password: "secret123", role: "admin" });
-  ok("public signup cannot self-register an admin (403)", spoof.status === 403, spoof);
+  const noCode = await reg({ name: "NoCode", email: "nc@" + s, password: "secret123" });
+  ok("signup without a code is refused (403)", noCode.status === 403, noCode);
+  const badCode = await reg({ name: "BadCode", email: "bc@" + s, password: "secret123", signupCode: "nope" });
+  ok("signup with a wrong code is refused (403)", badCode.status === 403, badCode);
+  const spoof = await reg({ name: "Sneaky", email: "sn@" + s, password: "secret123", signupCode: SIGNUP, role: "admin" });
+  ok("public signup cannot self-register an admin", spoof.status === 200 && spoof.data.user.role === "client", spoof.data);
+  const legacy = await reg({ name: "Legacy", email: "lg@" + s, password: "secret123", signupCode: SIGNUP, role: "user" });
+  ok("a legacy 'user' role signup is just a client", legacy.status === 200 && legacy.data.user.role === "client", legacy.data);
 
-  const res1 = await reg({ name: "Seller One", email: "s1@" + s, password: "secret123", role: "reseller", signupCode: SIGNUP });
-  const T1 = res1.data.token, R1 = res1.data.user;
-  ok("reseller registers", res1.status === 200, res1.data);
+  const c1 = await reg({ name: "Client One", email: "c1@" + s, password: "secret123", signupCode: SIGNUP });
+  const T1 = c1.data.token, C1 = c1.data.user;
+  ok("client registers", c1.status === 200 && C1.role === "client", c1.data);
+  ok("a new client has no membership yet", !C1.membership || C1.membership.state === "none", C1.membership);
+  ok("the client response carries no reseller code", C1.resellerCode === undefined, C1);
 
-  const buy1 = await reg({ name: "Buyer One", email: "b1@" + s, password: "secret123", role: "user", resellerCode: R1.resellerCode, phone: "+91 98765 43210" });
-  const B1 = buy1.data.token;
-  ok("buyer registers and phone is normalised", buy1.status === 200 && buy1.data.user.phone === "+919876543210", buy1.data);
+  const c2 = await reg({ name: "Client Two", email: "c2@" + s, password: "secret123", signupCode: SIGNUP });
+  const T2 = c2.data.token, C2 = c2.data.user;
 
-  const res2 = await reg({ name: "Seller Two", email: "s2@" + s, password: "secret123", role: "reseller", signupCode: SIGNUP });
-  const T2 = res2.data.token, R2 = res2.data.user;
-  const buy2 = await reg({ name: "Buyer Two", email: "b2@" + s, password: "secret123", role: "user", resellerCode: R2.resellerCode, phone: "919999999999" });
-  const B2 = buy2.data.token, U2 = buy2.data.user;
+  // ---------- contacts ----------
+  const badAdd = await call("/api/client/contacts", "POST", { name: "No phone" }, T1);
+  ok("a contact needs a phone number (400)", badAdd.status === 400, badAdd.data);
+  const badPhone = await call("/api/client/contacts", "POST", { phone: "123" }, T1);
+  ok("a 3-digit phone is rejected (400)", badPhone.status === 400, badPhone.data);
 
-  // ---------- catalogue ----------
-  const noImg = await upload("/api/products", "POST", { name: "Plain Item", description: "No picture", price: "250" }, T1);
-  ok("reseller adds a product with no image", noImg.status === 200 && noImg.data.image === "" && noImg.data.credits === undefined, noImg.data);
-  const withImg = await upload("/api/products", "POST", { name: "Widget", description: "Shiny", price: "99.5" }, T1, { buf: PNG, type: "image/png", name: "w.png" });
-  ok("reseller adds a product with an image", withImg.status === 200 && /\.png$/.test(withImg.data.image || ""), withImg.data);
-  ok("uploaded file exists on disk", fs.existsSync(path.join(UPLOADS, withImg.data.image)), withImg.data.image);
+  const a1 = await call("/api/client/contacts", "POST", { name: "Asha", phone: "+91 98765 43210" }, T1);
+  ok("client adds a contact, phone normalised", a1.status === 200 && a1.data.phone === "+919876543210", a1.data);
+  const dup = await call("/api/client/contacts", "POST", { name: "Asha again", phone: "+919876543210" }, T1);
+  ok("re-adding the same number returns the existing contact", dup.status === 200 && dup.data.id === a1.data.id, dup.data);
+  const a2 = await call("/api/client/contacts", "POST", { phone: "919999999999" }, T1);
+  ok("a bare 12-digit number is accepted", a2.status === 200 && a2.data.phone === "919999999999", a2.data);
 
-  const badType = await upload("/api/products", "POST", { name: "Evil", price: "1" }, T1, { buf: Buffer.from("not an image"), type: "text/plain", name: "x.txt" });
-  ok("a non-image upload is ignored, not stored", badType.status === 200 && badType.data.image === "", badType.data);
-  ok("non-image file was not written to disk", !fs.existsSync(path.join(UPLOADS, "x.txt")));
+  const book1 = await call("/api/client/contacts", "GET", null, T1);
+  ok("client lists their own contacts", book1.data.length === 2, book1.data);
+  const book2 = await call("/api/client/contacts", "GET", null, T2);
+  ok("another client sees none of them", book2.status === 200 && book2.data.length === 0, book2.data);
+  const steal = await call("/api/client/contacts/" + a1.data.id, "DELETE", null, T2);
+  ok("another client cannot delete a contact (404)", steal.status === 404, steal.data);
+  const renamed = await call("/api/client/contacts/" + a1.data.id, "PUT", { name: "Asha P" }, T1);
+  ok("client renames a contact", renamed.status === 200 && renamed.data.name === "Asha P", renamed.data);
 
-  const tooBig = await upload("/api/products", "POST", { name: "Huge", price: "1" }, T1, { buf: Buffer.alloc(6 * 1024 * 1024), type: "image/png", name: "h.png" });
-  ok("an image over 5MB is rejected with a clean 413", tooBig.status === 413, tooBig);
-
-  const noPrice = await upload("/api/products", "POST", { name: "Priceless", price: "" }, T1);
-  ok("product without a price is rejected (400)", noPrice.status === 400, noPrice);
-  const freeProduct = await upload("/api/products", "POST", { name: "Freebie", price: "0" }, T1);
-  ok("an explicit 0 price is allowed", freeProduct.status === 200 && freeProduct.data.price === 0, freeProduct.data);
-  const buyerPost = await upload("/api/products", "POST", { name: "Nope", price: "10" }, B1);
-  ok("a buyer cannot create products (403)", buyerPost.status === 403, buyerPost);
-
-  const edit = await upload("/api/products/" + withImg.data.id, "PUT", { name: "Widget Pro", price: "149" }, T1);
-  ok("reseller edits a product", edit.status === 200 && edit.data.name === "Widget Pro" && edit.data.price === 149, edit.data);
-  const otherEdit = await upload("/api/products/" + withImg.data.id, "PUT", { name: "Hijacked", price: "1" }, T2);
-  ok("a reseller cannot edit another reseller's product (404)", otherEdit.status === 404, otherEdit);
-
-  const cat1 = await call("/api/products", "GET", null, B1);
-  ok("buyer sees only their reseller's products", cat1.data.length === 4 && cat1.data.every((p) => p.resellerId === R1.id), cat1.data.map((p) => p.name));
-  const cat2 = await call("/api/products", "GET", null, B2);
-  ok("buyer of another reseller sees none of those", cat2.data.length === 0, cat2.data);
-
-  // ---------- orders grant no credits ----------
-  const order = await call("/api/orders", "POST", { productId: noImg.data.id }, B1);
-  ok("buyer places an order", order.status === 200 && order.data.order.status === "pending", order.data);
-  const me1 = await call("/api/me", "GET", null, B1);
-  ok("ordering does NOT grant the buyer any credits", me1.data.credits === 0, me1.data);
-  const order2 = await call("/api/orders", "POST", { productId: withImg.data.id }, B1);
-  ok("buyer can order again", order2.status === 200, order2.data);
-  const crossOrder = await call("/api/orders", "POST", { productId: noImg.data.id }, B2);
-  ok("buyer cannot order from another reseller (404)", crossOrder.status === 404, crossOrder);
-  const resOrder = await call("/api/orders", "POST", { productId: noImg.data.id }, T1);
-  ok("a reseller cannot order products (403)", resOrder.status === 403, resOrder);
-
-  const incoming = await call("/api/orders", "GET", null, T1);
-  ok("reseller sees incoming orders", incoming.data.length === 2, incoming.data.length);
-  const buyerOrders = await call("/api/orders", "GET", null, B1);
-  ok("buyer sees only their own orders", buyerOrders.data.length === 2, buyerOrders.data.length);
-  const badStatus = await call("/api/orders/" + order.data.order.id, "PATCH", { status: "weird" }, T1);
-  ok("unknown order status rejected (400)", badStatus.status === 400, badStatus);
-  const fulfil = await call("/api/orders/" + order.data.order.id, "PATCH", { status: "fulfilled" }, T1);
-  ok("reseller marks an order fulfilled", fulfil.status === 200 && fulfil.data.status === "fulfilled", fulfil.data);
-  const otherFulfil = await call("/api/orders/" + order.data.order.id, "PATCH", { status: "cancelled" }, T2);
-  ok("a reseller cannot touch another reseller's order (404)", otherFulfil.status === 404, otherFulfil);
+  const contactGet = await call("/api/client/contacts", "GET", null, A);
+  ok("the platform owner cannot read contacts (403)", contactGet.status === 403, contactGet);
 
   // ---------- admin grants credits ----------
-  const adminDenied = await call("/api/admin/resellers", "GET", null, T1);
-  ok("reseller cannot list resellers (403)", adminDenied.status === 403, adminDenied);
-  const zero = await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: 0 }, A);
+  const adminDenied = await call("/api/admin/clients", "GET", null, T1);
+  ok("a client cannot list clients (403)", adminDenied.status === 403, adminDenied);
+  const zero = await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: 0 }, A);
   ok("granting 0 credits is rejected (400)", zero.status === 400, zero);
-  const frac = await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: 1.5 }, A);
+  const frac = await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: 1.5 }, A);
   ok("fractional credits are rejected (400)", frac.status === 400, frac);
-  const overdraw = await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: -5 }, A);
+  const overdraw = await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: -5 }, A);
   ok("deducting below zero is rejected (400)", overdraw.status === 400, overdraw);
-  const grant = await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: 5 }, A);
+  const grant = await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: 5 }, A);
   ok("admin grants 5 credits", grant.status === 200 && grant.data.credits === 5, grant.data);
-  const grantAgain = await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: 1 }, A);
-  ok("credits accumulate", grantAgain.data.credits === 6, grantAgain.data);
-  const take = await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: -2 }, A);
-  ok("admin removes credits", take.status === 200 && take.data.credits === 4, take.data);
-  const grantUser = await call("/api/admin/resellers/" + buy1.data.user.id + "/credits", "POST", { amount: 10 }, A);
-  ok("admin cannot grant credits to a buyer (404)", grantUser.status === 404, grantUser);
-
-  // Counted relative to what this run created, not a fixed number, so the assertion does
-  // not depend on whatever happened to be in data/db.json beforehand.
-  const adminOrders = await call("/api/orders", "GET", null, A);
-  ok("admin sees every order in the database", adminOrders.data.length === 2, adminOrders.data.length);
+  const take = await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: -2 }, A);
+  ok("admin removes credits", take.status === 200 && take.data.credits === 3, take.data);
+  const grantAdmin = await call("/api/admin/clients/" + ADMIN_USER.id + "/credits", "POST", { amount: 10 }, A);
+  ok("admin cannot grant credits to a non-client (404)", grantAdmin.status === 404, grantAdmin);
 
   // ---------- membership is required to send ----------
   const plans = (await call("/api/pricing", "GET", null, T1)).data.plans;
-  const mreq = await call("/api/reseller/requests", "POST", { kind: "membership", planId: plans[0].id }, T1);
-  ok("reseller requests a membership plan", mreq.status === 200 && mreq.data.kind === "membership", mreq.data);
+  const noMember = await call("/api/campaigns", "POST", { name: "x", templateName: "t", contactIds: [a1.data.id] }, T1);
+  ok("a client with no membership cannot send (402)", noMember.status === 402 && /membership/i.test(noMember.data.error || ""), noMember.data);
+
+  const mreq = await call("/api/client/requests", "POST", { kind: "membership", planId: plans[0].id }, T1);
+  ok("client requests a membership plan", mreq.status === 200 && mreq.data.kind === "membership", mreq.data);
   const mapp = await call("/api/admin/requests/" + mreq.data.id + "/approve", "POST", {}, A);
   ok("admin approves the membership, activating it", mapp.status === 200 && mapp.data.status === "approved", mapp.data);
   const mstate = await call("/api/me", "GET", null, T1);
-  ok("reseller membership is now active", mstate.data.membership && mstate.data.membership.state === "active", mstate.data.membership);
+  ok("client membership is now active", mstate.data.membership && mstate.data.membership.state === "active", mstate.data.membership);
 
-  // ---------- campaigns: reseller only, own buyers only ----------
-  const buyerCamp = await call("/api/campaigns", "GET", null, B1);
-  ok("buyer cannot list campaigns (403)", buyerCamp.status === 403, buyerCamp);
-  const buyerSend = await call("/api/campaigns", "POST", { name: "x", templateName: "demo_template", customerIds: [buy1.data.user.id] }, B1);
-  ok("buyer cannot send campaigns (403)", buyerSend.status === 403, buyerSend);
+  // ---------- campaigns: a client messages the numbers they choose ----------
+  const adminCamp = await call("/api/campaigns", "GET", null, A);
+  ok("the platform owner cannot list campaigns (403)", adminCamp.status === 403, adminCamp);
 
-  const noIds = await call("/api/campaigns", "POST", { name: "x", templateName: "t", customerIds: [] }, T1);
-  ok("campaign with nobody selected is rejected (400)", noIds.status === 400, noIds);
+  const noRecip = await call("/api/campaigns", "POST", { name: "Empty", templateName: "t" }, T1);
+  ok("a campaign with nobody chosen is rejected (400)", noRecip.status === 400, noRecip);
+  const badOnly = await call("/api/campaigns", "POST", { name: "Bad", templateName: "t", numbers: ["bad", "12"] }, T1);
+  ok("a campaign with only invalid numbers is rejected (400)", badOnly.status === 400, badOnly.data);
 
-  const foreign = await call("/api/campaigns", "POST", { name: "Steal", templateName: "demo_template", customerIds: [U2.id] }, T1);
-  ok("reseller cannot campaign to another reseller's buyer (400)", foreign.status === 400, foreign);
+  await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: 50 }, A);
+  const beforeSend = (await call("/api/me", "GET", null, T1)).data.credits;
+  const sent = await call("/api/campaigns", "POST", { name: "Spring sale", templateName: "demo_template",
+    contactIds: [a1.data.id], numbers: ["+919876500001", "+919876543210", "nonsense"] }, T1);
+  ok("a client sends to chosen contacts + pasted numbers", sent.status === 200 && sent.data.campaign.total === 2, sent.data);
+  ok("invalid pasted numbers are dropped, and duplicates removed", sent.data.campaign.recipients.length === 2
+    && sent.data.campaign.recipients.includes("+919876543210") && sent.data.campaign.recipients.includes("+919876500001"), sent.data.campaign.recipients);
+  ok("1 credit is spent per recipient", sent.data.credits === beforeSend - 2, { credits: sent.data.credits, beforeSend });
+  ok("recipient phone resolved server-side", sent.data.campaign.recipients.includes("+919876543210"), sent.data.campaign.recipients);
+  ok("simulated campaign is marked accepted", sent.data.campaign.status === "Simulated" && sent.data.campaign.accepted === 2, sent.data.campaign);
 
+  const mine = await call("/api/campaigns", "GET", null, T1);
+  ok("the campaign appears in the client's history", mine.data.length === 1, mine.data);
+
+  // ---------- stats ----------
+  const stats = await call("/api/client/stats", "GET", null, T1);
+  ok("stats count the client's contacts", stats.data.contacts === 2, stats.data);
+  ok("stats count campaigns and messages", stats.data.campaigns === 1 && stats.data.sent === 2, stats.data);
+  ok("stats total spent credits", stats.data.creditsUsed === 2, stats.data);
+  const stats2 = await call("/api/client/stats", "GET", null, T2);
+  ok("another client's stats are empty", stats2.data.campaigns === 0 && stats2.data.contacts === 0, stats2.data);
+
+  // out of credits blocks the send
   const cur = (await call("/api/me", "GET", null, T1)).data.credits;
-  const drain = await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: -cur }, A);
-  ok("reseller balance drains to exactly 0", drain.status === 200 && drain.data.credits === 0, drain.data);
-
-  const tooFew = await call("/api/campaigns", "POST", { name: "Big", templateName: "demo_template", customerIds: [buy1.data.user.id] }, T1);
+  const drain = await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: -cur }, A);
+  ok("client balance drains to exactly 0", drain.status === 200 && drain.data.credits === 0, drain.data);
+  const tooFew = await call("/api/campaigns", "POST", { name: "Big", templateName: "demo_template",
+    numbers: ["+919876500001"] }, T1);
   ok("campaign blocked when out of credits (402)", tooFew.status === 402, tooFew.data);
 
-  await call("/api/admin/resellers/" + R1.id + "/credits", "POST", { amount: 50 }, A);
-  const sent = await call("/api/campaigns", "POST", { name: "Spring sale", templateName: "demo_template", customerIds: [buy1.data.user.id] }, T1);
-  ok("reseller campaigns to own buyer", sent.status === 200 && sent.data.campaign.total === 1, sent.data);
-  ok("1 credit spent per recipient", sent.data.credits === 49, sent.data.credits);
-  ok("recipient phone resolved server-side", sent.data.campaign.recipients[0] === "+919876543210", sent.data.campaign.recipients);
+  // ---------- campaign records the Helo template shape ----------
+  await call("/api/admin/clients/" + C1.id + "/credits", "POST", { amount: 10 }, A);
+  const shaped = await call("/api/campaigns", "POST", { name: "Shaped", templateName: "promo",
+    templateCategory: "MARKETING", templateLanguage: "hi", numbers: ["+919876500001"] }, T1);
+  ok("campaign stores the template category and language", shaped.status === 200
+    && shaped.data.campaign.templateCategory === "MARKETING" && shaped.data.campaign.templateLanguage === "hi", shaped.data.campaign);
+  ok("delivery counters start at zero for DLR later", shaped.data.campaign.delivered === 0
+    && shaped.data.campaign.failed === 0, shaped.data.campaign);
 
-  const meT1 = await call("/api/me", "GET", null, T1);
-  ok("campaign appears in reseller history", (await call("/api/campaigns", "GET", null, T1)).data.length === 1, meT1.data.credits);
-  const seenByBuyer = await call("/api/campaigns", "GET", null, B1);
-  ok("buyer still cannot see campaigns (403)", seenByBuyer.status === 403, seenByBuyer);
+  // ---------- sender number (a client's own WhatsApp number) ----------
+  const badEdit = await call("/api/me", "PATCH", { phone: "12" }, T1);
+  ok("invalid sender number rejected on edit (400)", badEdit.status === 400, badEdit);
+  const goodEdit = await call("/api/me", "PATCH", { phone: "+91 98700 11111" }, T1);
+  ok("client sets their sender number, normalised", goodEdit.status === 200 && goodEdit.data.phone === "+919870011111", goodEdit.data);
+  const clearEdit = await call("/api/me", "PATCH", { phone: "" }, T1);
+  ok("client can clear the sender number", clearEdit.status === 200 && clearEdit.data.phone === "", clearEdit.data);
 
-  // ---------- phone editing ----------
-  const badEdit = await call("/api/me", "PATCH", { phone: "12" }, B1);
-  ok("invalid phone rejected on edit (400)", badEdit.status === 400, badEdit);
-  const goodEdit = await call("/api/me", "PATCH", { phone: "+1 555 010 9999" }, B1);
-  ok("buyer edits their phone", goodEdit.status === 200 && goodEdit.data.phone === "+15550109999", goodEdit.data);
-  const resPhone = await call("/api/me", "PATCH", { phone: "+919999999999" }, T1);
-  ok("a reseller has no phone to set (403)", resPhone.status === 403, resPhone);
-
-  // buyer with no phone cannot be targeted
-  const noPhoneUser = await reg({ name: "Landline", email: "ln@" + s, password: "secret123", role: "user", resellerCode: R1.resellerCode, phone: "12345" });
-  ok("signup with an unusable phone is rejected", noPhoneUser.status === 400, noPhoneUser.data);
+  // ---------- hand-added templates (fallback while Helo's list is unreachable) ----------
+  const cnone = await call("/api/templates/custom", "GET", null, T1);
+  ok("no hand-added templates to start", cnone.status === 200 && cnone.data.length === 0, cnone.data);
+  const cbad = await call("/api/templates/custom", "POST", { name: "   " }, T1);
+  ok("a hand-added template needs a name (400)", cbad.status === 400, cbad.data);
+  const cadd = await call("/api/templates/custom", "POST", { name: "ismotors_client", language: "English" }, T1);
+  ok("client adds a template by hand", cadd.status === 200 && cadd.data.name === "ismotors_client"
+    && cadd.data.custom === true && cadd.data.category === "MARKETING", cadd.data);
+  const clist = await call("/api/templates/custom", "GET", null, T1);
+  ok("hand-added template is listed for its owner", clist.data.length === 1 && clist.data[0].id === cadd.data.id, clist.data);
+  const cOther = await call("/api/templates/custom", "GET", null, T2);
+  ok("another account does not see it", cOther.status === 200 && cOther.data.length === 0, cOther.data);
+  const cSteal = await call("/api/templates/custom/" + cadd.data.id, "DELETE", null, T2);
+  ok("another account cannot delete it (404)", cSteal.status === 404, cSteal.data);
+  const cdel = await call("/api/templates/custom/" + cadd.data.id, "DELETE", null, T1);
+  ok("owner deletes the hand-added template", cdel.status === 200 && cdel.data.ok === true, cdel.data);
 
   // ---------- helo health check (admin only, and it must never send) ----------
-  const heloReseller = await call("/api/helo/status", "GET", null, T1);
-  ok("reseller cannot read the helo health check (403)", heloReseller.status === 403, heloReseller);
+  const heloClient = await call("/api/helo/status", "GET", null, T1);
+  ok("client cannot read the helo health check (403)", heloClient.status === 403, heloClient);
   const heloAdmin = await call("/api/helo/status", "GET", null, A);
   ok("admin health check runs without credentials and explains why", heloAdmin.status === 200
     && heloAdmin.data.ok === false && /HELO_BASE_URL/.test(heloAdmin.data.reason), heloAdmin.data);
@@ -246,41 +229,11 @@ async function upload(p, method, fields, token, file) {
   const heloAnon = await call("/api/helo/status", "GET");
   ok("health check needs a token (401)", heloAnon.status === 401, heloAnon);
 
-  // ---------- campaign records the new Helo fields ----------
-  // the reseller had 49 credits after the previous campaign, so 48 is expected after this one
-  const shaped = await call("/api/campaigns", "POST", { name: "Shaped", templateName: "promo",
-    templateCategory: "MARKETING", templateLanguage: "hi", customerIds: [buy1.data.user.id] }, T1);
-  ok("campaign stores the template category and language", shaped.status === 200
-    && shaped.data.campaign.templateCategory === "MARKETING" && shaped.data.campaign.templateLanguage === "hi", shaped.data.campaign);
-  ok("simulated campaign is marked accepted and simulated", shaped.data.campaign.status === "Simulated"
-    && shaped.data.campaign.accepted === 1 && shaped.data.campaign.rejected === 0, shaped.data.campaign);
-  const simulatedCredits = await call("/api/me", "GET", null, T1);
-  ok("a simulated campaign still charges the reseller", simulatedCredits.data.credits === 48, simulatedCredits.data.credits);
-  ok("delivery counters start at zero for DLR later", shaped.data.campaign.delivered === 0
-    && shaped.data.campaign.failed === 0, shaped.data.campaign);
-
-  // ---------- hand-added templates (fallback while Helo's list is unreachable) ----------
-  const cnone = await call("/api/templates/custom", "GET", null, T1);
-  ok("no hand-added templates to start", cnone.status === 200 && cnone.data.length === 0, cnone.data);
-  const cbad = await call("/api/templates/custom", "POST", { name: "   " }, T1);
-  ok("a hand-added template needs a name (400)", cbad.status === 400, cbad.data);
-  const cadd = await call("/api/templates/custom", "POST", { name: "ismotors_client", language: "English" }, T1);
-  ok("reseller adds a template by hand", cadd.status === 200 && cadd.data.name === "ismotors_client"
-    && cadd.data.custom === true && cadd.data.category === "MARKETING", cadd.data);
-  const clist = await call("/api/templates/custom", "GET", null, T1);
-  ok("hand-added template is listed for its owner", clist.data.length === 1 && clist.data[0].id === cadd.data.id, clist.data);
-  const cOther = await call("/api/templates/custom", "GET", null, B1);
-  ok("another account does not see it", cOther.status === 200 && cOther.data.length === 0, cOther.data);
-  const cSteal = await call("/api/templates/custom/" + cadd.data.id, "DELETE", null, B1);
-  ok("another account cannot delete it (404)", cSteal.status === 404, cSteal.data);
-  const cdel = await call("/api/templates/custom/" + cadd.data.id, "DELETE", null, T1);
-  ok("owner deletes the hand-added template", cdel.status === 200 && cdel.data.ok === true, cdel.data);
-
-  // ---------- cleanup of the test product ----------
-  const del = await call("/api/products/" + withImg.data.id, "DELETE", null, T1);
-  ok("reseller deletes a product", del.status === 200, del);
-  const gone = fs.existsSync(path.join(UPLOADS, withImg.data.image));
-  ok("deleting a product removes its image from disk", !gone, gone);
+  // ---------- the old product/order surface is gone ----------
+  const oldProducts = await call("/api/products", "GET", null, T1);
+  ok("the product catalogue is gone (404)", oldProducts.status === 404, oldProducts);
+  const oldOrders = await call("/api/orders", "GET", null, T1);
+  ok("the order history is gone (404)", oldOrders.status === 404, oldOrders);
 
   console.log("\n" + pass + " passed, " + fail + " failed");
   // the exit handler tears down the server and restores data/db.json

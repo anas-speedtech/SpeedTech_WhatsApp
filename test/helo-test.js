@@ -194,6 +194,20 @@ const accepted = (to) => ({ status: 200, json: { data: { status: true, requestId
     sends.map((s) => s.body.to));
   ok("`to` is bare digits, no +", sends[0].body.to === "9198765000001", sends[0].body.to);
   ok("`from` is the HELO_FROM number", sends[0].body.from === "918080812345", sends[0].body.from);
+
+  // a client's own sender number overrides the platform fallback
+  helo = fresh();
+  reset(withAuth({ "/messages/single": (body) => accepted(body.to) }));
+  await helo.sendBulkTemplate({ templateName: "promo", recipients: ["+9198765000001"], from: "+91 90000 12345" });
+  ok("an explicit `from` overrides HELO_FROM, normalised",
+    calls.filter((c) => c.p === "/messages/single")[0].body.from === "919000012345",
+    calls.filter((c) => c.p === "/messages/single")[0].body.from);
+  helo = fresh();
+  reset(withAuth({ "/messages/single": (body) => accepted(body.to) }));
+  await helo.sendBulkTemplate({ templateName: "promo", recipients: ["+9198765000001"], from: "" });
+  ok("an empty `from` falls back to HELO_FROM",
+    calls.filter((c) => c.p === "/messages/single")[0].body.from === "918080812345",
+    calls.filter((c) => c.p === "/messages/single")[0].body.from);
   ok("type is template and consent is checked", sends[0].body.type === "template" && sends[0].body.check_consent === true, sends[0].body);
   ok("template carries name, category and language code",
     sends[0].body.template.name === "promo" && sends[0].body.template.category === "MARKETING"

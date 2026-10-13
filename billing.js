@@ -4,7 +4,7 @@
 // N recipients never suffers floating-point rounding: the wipe is always
 //   N credits x creditSellPricePaise  ->  amountPaise.
 //
-// The buy price (what the platform pays) is admin-only. The sell price is what a reseller
+// The buy price (what the platform pays) is admin-only. The sell price is what a client
 // pays. Shared by server.js (runtime defaults + routes) and migrate.js (one-off backfill)
 // so the two can never disagree about the shape.
 
@@ -35,10 +35,10 @@ const perCredit = (p) => `₹${(Number(p || 0) / 100).toFixed(2)}`;
 
 const creditsCost = (credits, pricePaise) => Math.round(Number(credits || 0) * Number(pricePaise || 0));
 
-// A reseller's membership state, derived from the stored expiry. "none" means they never
+// A client's membership state, derived from the stored expiry. "none" means they never
 // bought a plan; both "none" and "expired" block campaign sends when requireMembership is on.
 function membershipState(user) {
-  if (!user || user.role !== "reseller") return null;
+  if (!user || user.role !== "client") return null;
   const expires = user.planExpiresAt ? Date.parse(user.planExpiresAt) : NaN;
   const state = !Number.isFinite(expires) ? "none" : expires < Date.now() ? "expired" : "active";
   return { state, planId: user.planId || null, startedAt: user.planStartedAt || null, expiresAt: user.planExpiresAt || null };
@@ -68,8 +68,8 @@ function logTxn(db, nextId, t) {
 }
 
 // Idempotent. Collections are topped up on every boot; the user field backfill and the
-// grandfathering of pre-existing resellers (so the panel keeps working) run once, tracked
-// by settings.billingMigrated, so a reseller registered later is never silently comped.
+// grandfathering of pre-existing clients (so the panel keeps working) run once, tracked
+// by settings.billingMigrated, so a client registered later is never silently comped.
 function ensureBilling(db, nextId) {
   let changed = 0;
 
@@ -93,19 +93,19 @@ function ensureBilling(db, nextId) {
     if (!("onboardedAt" in u)) { u.onboardedAt = new Date().toISOString(); changed++; }
     if (!("lastTxnAt" in u)) { u.lastTxnAt = null; changed++; }
     if (!("wabaId" in u)) { u.wabaId = ""; changed++; }
-    if (u.role === "reseller") {
+    if (u.role === "client") {
       if (!("planId" in u)) { u.planId = null; changed++; }
       if (!("planStartedAt" in u)) { u.planStartedAt = null; changed++; }
       if (!("planExpiresAt" in u)) { u.planExpiresAt = null; changed++; }
     }
   }
 
-  // one-time: give resellers that predate billing a working membership so nothing that
+  // one-time: give clients that predate billing a working membership so nothing that
   // worked before this feature started silently stops sending
   if (db.settings.billingMigrated !== true) {
     const now = new Date().toISOString();
     for (const u of db.users) {
-      if (u.role === "reseller" && !u.planExpiresAt) {
+      if (u.role === "client" && !u.planExpiresAt) {
         u.planId = firstPlan ? firstPlan.id : null;
         u.planStartedAt = now;
         u.planExpiresAt = nextExpiry(now, firstPlan ? firstPlan.months : 12);

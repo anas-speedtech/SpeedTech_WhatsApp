@@ -23,6 +23,7 @@ const qEmail = (name) => `${name}-${RUN}@qt.test`;
 // the fake Helo: some numbers accepted, some rejected via the HTTP-200 + status:false trap
 let slow = false;
 let rejectAllNums = false;
+let lastFrom = null;
 // the stub rejects any number whose digits end in 3 or 5, mirroring the documented
 // HTTP-200-with-status:false failure shape
 const rejected = (to) => /[35]$/.test(to);
@@ -46,6 +47,7 @@ const heloStub = http.createServer(async (req, res) => {
     if (slow) await new Promise((r) => setTimeout(r, 120));
     concurrentNow--;
     const m = JSON.parse(body || "{}");
+    lastFrom = m.from;
     if (rejectAllNums || rejected(m.to)) {
       // the documented failure shape: HTTP 200 with the error buried in data
       return j(200, { statusCode: 200, message: "Success",
@@ -112,31 +114,33 @@ try { fs.copyFileSync(DB, REAL_DB); } catch (e) { console.log("no db to back up:
 
     const admin = (await req("POST", `${BASE}/api/auth/login`, { email: ADMIN_EMAIL, password: ADMIN_PASSWORD })).json;
 
-    // a reseller with five buyers, two of whom Helo will reject
+    // a client with five contacts, two of whom Helo will reject
     const rsReg = await req("POST", `${BASE}/api/auth/register`, { name: "RS", email: qEmail("rs"),
-      password: "pw12345678", role: "reseller", signupCode: "code123" });
+      password: "pw12345678", signupCode: "code123" });
     const rs = rsReg.json;
-    ok("a reseller can register with the signup code", rsReg.status === 200 && rs.user && rs.user.resellerCode, rs);
+    ok("a client can register with the signup code", rsReg.status === 200 && rs.user && rs.user.role === "client", rs);
+    // the client sends from their own WhatsApp number, set in Settings
+    await req("PATCH", `${BASE}/api/me`, { phone: "+91 90000 00001" }, rs.token);
     for (let i = 1; i <= 5; i++) {
-      await req("POST", `${BASE}/api/auth/register`, { name: "B" + i, email: qEmail("b" + i),
-        password: "pw12345678", role: "user", resellerCode: rs.user.resellerCode, phone: `+91987650000${i}` });
+      await req("POST", `${BASE}/api/client/contacts`, { name: "C" + i, phone: `+91987650000${i}` }, rs.token);
     }
-    const withPhones = (await req("GET", `${BASE}/api/reseller/users`, null, rs.token)).json;
-    ok("reseller sees the five buyers they created", withPhones.length === 5, withPhones.length);
-    ok("every buyer has a normalised phone number", withPhones.every((b) => /^\+91\d{10}$/.test(b.phone)),
+    const withPhones = (await req("GET", `${BASE}/api/client/contacts`, null, rs.token)).json;
+    ok("the client sees the five contacts they added", withPhones.length === 5, withPhones.length);
+    ok("every contact has a normalised phone number", withPhones.every((b) => /^\+91\d{10}$/.test(b.phone)),
       withPhones.map((b) => b.phone));
-    const noPhoneBuyer = { id: 999999, phone: "" }; // a buyer id that does not exist for this reseller
+    const targetIds = withPhones.map((b) => b.id);
+    const noContact = { id: 999999 }; // a contact id that does not exist for this client
 
-    // give the reseller credits
-    const grant = await req("POST", `${BASE}/api/admin/resellers/${rs.user.id}/credits`, { amount: 100 }, admin.token);
+    // give the client credits
+    const grant = await req("POST", `${BASE}/api/admin/clients/${rs.user.id}/credits`, { amount: 100 }, admin.token);
     ok("admin can grant credits", grant.status === 200 && grant.json.credits === 100, grant);
 
-    // membership gates sending now, so give the reseller an active plan before the send tests
+    // membership gates sending now, so give the client an active plan before the send tests
     const plans = (await req("GET", `${BASE}/api/pricing`, null, rs.token)).json.plans;
-    const mreq = await req("POST", `${BASE}/api/reseller/requests`, { kind: "membership", planId: plans[0].id }, rs.token);
+    const mreq = await req("POST", `${BASE}/api/client/requests`, { kind: "membership", planId: plans[0].id }, rs.token);
     await req("POST", `${BASE}/api/admin/requests/${mreq.json.id}/approve`, {}, admin.token);
     const mstate = (await req("GET", `${BASE}/api/me`, null, rs.token)).json;
-    ok("reseller membership is active for the send tests", mstate.membership && mstate.membership.state === "active", mstate.membership);
+    ok("client membership is active for the send tests", mstate.membership && mstate.membership.state === "active", mstate.membership);
 
     // ---------- health check, no sends ----------
     const h = await req("GET", `${BASE}/api/helo/status`, null, admin.token);
@@ -148,10 +152,9 @@ try { fs.copyFileSync(DB, REAL_DB); } catch (e) { console.log("no db to back up:
     slow = true;
     const before = sendCount;
     const t0 = Date.now();
-    const targetIds = withPhones.filter((b) => b.phone).map((b) => b.id);
     const post = await req("POST", `${BASE}/api/campaigns`, { name: "Launch",
       templateName: "ismotors_client", templateCategory: "MARKETING", templateLanguage: "English",
-      customerIds: targetIds }, rs.token);
+      contactIds: targetIds }, rs.token);
     const elapsed = Date.now() - t0;
 
     ok("campaign POST succeeds", post.status === 200, post);
@@ -167,14 +170,15 @@ try { fs.copyFileSync(DB, REAL_DB); } catch (e) { console.log("no db to back up:
     ok("concurrency is capped by HELO_BATCH_SIZE", peakConcurrent <= 2, peakConcurrent);
     ok("concurrency actually parallelises", peakConcurrent > 1, peakConcurrent);
 
-    const expectTotal = withPhones.filter((b) => b.phone).length;
-    const expectAccepted = withPhones.filter((b) => b.phone && !rejected(b.phone.replace(/\D/g, ""))).length;
-    ok("only buyers with a phone were targeted", done.total === expectTotal, { total: done.total, expectTotal });
+    const expectTotal = withPhones.length;
+    const expectAccepted = withPhones.filter((b) => !rejected(b.phone.replace(/\D/g, ""))).length;
+    ok("every chosen contact was targeted", done.total === expectTotal, { total: done.total, expectTotal });
     ok("only Helo-accepted recipients are counted", done.accepted === expectAccepted, { accepted: done.accepted, expectAccepted });
     ok("rejected count matches", done.rejected === expectTotal - expectAccepted, { rejected: done.rejected });
     ok("status is Partial when some are rejected", done.status === "Partial", done.status);
     ok("failures are recorded with Helo's own message", (done.failures || []).length > 0
       && /3501/.test(done.failures[0].error), done.failures && done.failures[0]);
+    ok("the client's own sender number is used, not HELO_FROM", lastFrom === "919000000001", lastFrom);
 
     // credits: charged only for what Helo accepted
     const after = (await req("GET", `${BASE}/api/me`, null, rs.token)).json;
@@ -184,7 +188,7 @@ try { fs.copyFileSync(DB, REAL_DB); } catch (e) { console.log("no db to back up:
     // ---------- a second campaign must be able to start while the first is done ----------
     const second = await req("POST", `${BASE}/api/campaigns`, { name: "Second",
       templateName: "ismotors_client", templateCategory: "MARKETING", templateLanguage: "en",
-      customerIds: [targetIds[0]] }, rs.token);
+      contactIds: [targetIds[0]] }, rs.token);
     ok("a later campaign is accepted", second.status === 200, second);
     const done2 = await settle(BASE, rs.token, second.json.campaign.id);
     ok("the second campaign also completes", done2 && done2.status !== "Sending", done2 && done2.status);
@@ -194,7 +198,7 @@ try { fs.copyFileSync(DB, REAL_DB); } catch (e) { console.log("no db to back up:
     const beforeBad = (await req("GET", `${BASE}/api/me`, null, rs.token)).json.credits;
     const bad = await req("POST", `${BASE}/api/campaigns`, { name: "AllBad",
       templateName: "ismotors_client", templateCategory: "MARKETING", templateLanguage: "en",
-      customerIds: targetIds }, rs.token);
+      contactIds: targetIds }, rs.token);
     const badDone = await settle(BASE, rs.token, bad.json.campaign.id);
     ok("a campaign where every send fails is Failed", badDone.status === "Failed", badDone.status);
     ok("a fully failed campaign accepts nothing", badDone.accepted === 0, badDone.accepted);
@@ -202,27 +206,27 @@ try { fs.copyFileSync(DB, REAL_DB); } catch (e) { console.log("no db to back up:
     ok("a fully failed campaign costs no credits", afterBad.credits === beforeBad, { before: beforeBad, after: afterBad.credits });
     rejectAllNums = false;
 
-    // ---------- a reseller cannot target someone else's buyer ----------
+    // ---------- a client cannot target someone else's contacts ----------
     const rs2 = (await req("POST", `${BASE}/api/auth/register`, { name: "RS2", email: qEmail("rs2"),
-      password: "pw12345678", role: "reseller", signupCode: "code123" })).json;
-    ok("a second reseller registers", rs2.user && rs2.token, rs2);
-    await req("POST", `${BASE}/api/admin/resellers/${rs2.user.id}/credits`, { amount: 50 }, admin.token);
+      password: "pw12345678", signupCode: "code123" })).json;
+    ok("a second client registers", rs2.user && rs2.token, rs2);
+    await req("POST", `${BASE}/api/admin/clients/${rs2.user.id}/credits`, { amount: 50 }, admin.token);
     const foreign = await req("POST", `${BASE}/api/campaigns`, { name: "Sneaky",
-      templateName: "ismotors_client", customerIds: targetIds }, rs2.token);
-    ok("a reseller cannot target another reseller's buyers", foreign.status === 400, foreign);
+      templateName: "ismotors_client", contactIds: targetIds }, rs2.token);
+    ok("a client cannot target another client's contacts", foreign.status === 400, foreign);
 
     // ---------- no targetable recipients is refused ----------
-    const nophone = await req("POST", `${BASE}/api/campaigns`, { name: "NoPhone",
-      templateName: "ismotors_client", customerIds: [noPhoneBuyer.id] }, rs2.token);
+    const nophone = await req("POST", `${BASE}/api/campaigns`, { name: "Nobody",
+      templateName: "ismotors_client", contactIds: [noContact.id] }, rs2.token);
     ok("targeting nobody is refused with 400", nophone.status === 400, nophone);
 
-    // ---------- a client-supplied phone cannot override server-side ownership ----------
+    // ---------- a client-supplied recipients list cannot override server-side ownership ----------
     const spoofed = await req("POST", `${BASE}/api/campaigns`, { name: "Spoofed",
-      templateName: "ismotors_client", customerIds: targetIds,
+      templateName: "ismotors_client", contactIds: targetIds,
       recipients: ["+10000000000"] }, rs.token);
     ok("a client-supplied recipients list is ignored", spoofed.status === 200, spoofed);
     const spoofDone = await settle(BASE, rs.token, spoofed.json.campaign.id);
-    ok("only the server-resolved buyers were messaged", spoofDone.total === targetIds.length, spoofDone.total);
+    ok("only the server-resolved contacts were messaged", spoofDone.total === targetIds.length, spoofDone.total);
 
     // ---------- secrets never reach the client ----------
     const me = JSON.stringify((await req("GET", `${BASE}/api/me`, null, rs.token)).json);

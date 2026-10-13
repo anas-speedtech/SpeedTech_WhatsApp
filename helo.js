@@ -212,12 +212,13 @@ async function sendToOne({ from, to, category, language, templateName, vars, con
 // bill incrementally instead of waiting for the whole campaign.
 // Resolves to per-recipient results so partial rejections are visible and billable-correct.
 async function sendBulkTemplate({
-  templateName, templateCategory, templateLanguage, recipients, params, checkConsent, onAccepted,
+  templateName, templateCategory, templateLanguage, recipients, params, checkConsent, onAccepted, from: fromOverride,
 }) {
   if (!configured()) return { simulated: true, accepted: recipients.length, results: [] };
 
-  const from = digits(FROM);
-  if (!from) throw new Error("HELO_FROM is not set, so there is no sender number");
+  // Each client sends from their own WhatsApp number; HELO_FROM is the platform fallback.
+  const from = digits(fromOverride) || digits(FROM);
+  if (!from) throw new Error("No sender number: set your sender phone in Settings, or HELO_FROM");
   const category = String(templateCategory || "MARKETING");
   const consent = checkConsent === undefined ? CHECK_CONSENT : Boolean(checkConsent);
   const byPhone = params && typeof params === "object" ? params : {};

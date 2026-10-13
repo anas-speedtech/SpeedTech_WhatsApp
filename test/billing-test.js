@@ -67,21 +67,18 @@ async function call(p, method, body, token) {
   ok("three default plans are seeded", settings.data.plans.length === 3, settings.data.plans);
 
   // ---------- roles and pricing visibility ----------
-  const res = await call("/api/auth/register", "POST", { name: "Seller", email: `s@${s}`, password: "secret123", role: "reseller", signupCode: SIGNUP });
+  const res = await call("/api/auth/register", "POST", { name: "Client", email: `s@${s}`, password: "secret123", signupCode: SIGNUP });
   const T = res.data.token, R = res.data.user;
-  ok("a reseller registers", res.status === 200 && R.resellerCode, res.data);
-  ok("a new reseller has no membership yet", !R.membership || R.membership.state === "none", R.membership);
-
-  const buy1 = await call("/api/auth/register", "POST", { name: "Buyer", email: `b@${s}`, password: "secret123", role: "user", resellerCode: R.resellerCode, phone: "+919876500001" });
-  const B1 = buy1.data.user;
-  ok("a buyer registers under the reseller", buy1.status === 200 && B1.resellerId === R.id, buy1.data.user);
+  ok("a client registers", res.status === 200 && R.role === "client", res.data);
+  ok("a new client has no membership yet", !R.membership || R.membership.state === "none", R.membership);
+  ok("the client response carries no reseller code", R.resellerCode === undefined, R);
 
   const pricing = await call("/api/pricing", "GET", null, T);
-  ok("a reseller sees the sell price", pricing.data.creditSellPricePaise === 100, pricing.data);
-  ok("a reseller never sees the buy price", pricing.data.creditBuyPricePaise === undefined, Object.keys(pricing.data));
+  ok("a client sees the sell price", pricing.data.creditSellPricePaise === 100, pricing.data);
+  ok("a client never sees the buy price", pricing.data.creditBuyPricePaise === undefined, Object.keys(pricing.data));
   ok("pricing lists the plans", Array.isArray(pricing.data.plans) && pricing.data.plans.length === 3, pricing.data.plans);
   const denied = await call("/api/admin/settings", "GET", null, T);
-  ok("a reseller cannot read admin settings (403)", denied.status === 403, denied);
+  ok("a client cannot read admin settings (403)", denied.status === 403, denied);
 
   // ---------- admin edits pricing ----------
   const badSell = await call("/api/admin/settings", "PATCH", { creditSellPricePaise: 80 }, A);
@@ -102,65 +99,66 @@ async function call(p, method, body, token) {
   ok("admin deletes a plan", delPlan.status === 200 && delPlan.data.ok === true, delPlan.data);
 
   // ---------- credit request -> approval -> ledger ----------
-  const creq = await call("/api/reseller/requests", "POST", { kind: "credits", credits: 250, method: "UPI-1234" }, T);
+  const creq = await call("/api/client/requests", "POST", { kind: "credits", credits: 250, method: "UPI-1234" }, T);
   ok("a credit request is created and priced at the sell rate", creq.status === 200 && creq.data.amountPaise === 250 * 150 && creq.data.status === "pending", creq.data);
-  const dup = await call("/api/reseller/requests", "POST", { kind: "credits", credits: 5 }, T);
-  ok("a second pending request from the same reseller is refused (409)", dup.status === 409, dup.data);
-  const badReq = await call("/api/reseller/requests", "POST", { kind: "credits", credits: 0 }, T);
+  const dup = await call("/api/client/requests", "POST", { kind: "credits", credits: 5 }, T);
+  ok("a second pending request from the same client is refused (409)", dup.status === 409, dup.data);
+  const badReq = await call("/api/client/requests", "POST", { kind: "credits", credits: 0 }, T);
   ok("a zero-credit request is refused (400)", badReq.status === 400, badReq.data);
 
   const adminReqs = await call("/api/admin/requests", "GET", null, A);
-  ok("the admin sees the pending request", adminReqs.data.length === 1 && adminReqs.data[0].reseller.id === R.id, adminReqs.data);
+  ok("the admin sees the pending request", adminReqs.data.length === 1 && adminReqs.data[0].client.id === R.id, adminReqs.data);
   const approve = await call("/api/admin/requests/" + creq.data.id + "/approve", "POST", {}, A);
-  ok("approving the request credits the reseller", approve.status === 200 && approve.data.status === "approved", approve.data);
+  ok("approving the request credits the client", approve.status === 200 && approve.data.status === "approved", approve.data);
   const reApprove = await call("/api/admin/requests/" + creq.data.id + "/approve", "POST", {}, A);
   ok("a decided request cannot be approved twice (409)", reApprove.status === 409, reApprove.data);
 
   const me1 = await call("/api/me", "GET", null, T);
-  ok("the reseller now holds 250 credits", me1.data.credits === 250, me1.data.credits);
-  const ledger = await call("/api/reseller/txns", "GET", null, T);
+  ok("the client now holds 250 credits", me1.data.credits === 250, me1.data.credits);
+  const ledger = await call("/api/client/txns", "GET", null, T);
   ok("the purchase is recorded in the ledger", ledger.data.length === 1 && ledger.data[0].type === "purchase" && ledger.data[0].credits === 250, ledger.data);
   ok("the platform's cost basis is stored (buy price, not sell)", ledger.data[0].costPaise === 250 * 92, ledger.data[0]);
 
   // ---------- membership gate ----------
-  const noMember = await call("/api/campaigns", "POST", { name: "x", templateName: "t", customerIds: [B1.id] }, T);
-  ok("a reseller with no membership cannot send (402)", noMember.status === 402 && /membership/i.test(noMember.data.error || ""), noMember.data);
+  const noMember = await call("/api/campaigns", "POST", { name: "x", templateName: "t", numbers: ["+919876500001"] }, T);
+  ok("a client with no membership cannot send (402)", noMember.status === 402 && /membership/i.test(noMember.data.error || ""), noMember.data);
 
-  const mreq = await call("/api/reseller/requests", "POST", { kind: "membership", planId: pricing.data.plans[0].id }, T);
+  const mreq = await call("/api/client/requests", "POST", { kind: "membership", planId: pricing.data.plans[0].id }, T);
   ok("a membership request is created", mreq.status === 200 && mreq.data.kind === "membership", mreq.data);
   const mapprove = await call("/api/admin/requests/" + mreq.data.id + "/approve", "POST", {}, A);
   ok("the membership is approved", mapprove.status === 200 && mapprove.data.status === "approved", mapprove.data);
   const me2 = await call("/api/me", "GET", null, T);
   ok("the membership is now active", me2.data.membership && me2.data.membership.state === "active", me2.data.membership);
 
-  const send = await call("/api/campaigns", "POST", { name: "Go", templateName: "t", customerIds: [B1.id] }, T);
+  const send = await call("/api/campaigns", "POST", { name: "Go", templateName: "t", numbers: ["+919876500001"] }, T);
   ok("a member with credits can send (simulated)", send.status === 200 && send.data.campaign.status === "Simulated", send.data);
   ok("the send spends 1 credit", send.data.credits === 249, send.data.credits);
-  const afterSend = await call("/api/reseller/txns", "GET", null, T);
+  const afterSend = await call("/api/client/txns", "GET", null, T);
   ok("the spend is recorded in the ledger", afterSend.data.some((t) => t.type === "spend" && t.credits === 1), afterSend.data);
 
-  // ---------- stats, and ledger isolation between resellers ----------
-  const stats = await call("/api/reseller/stats", "GET", null, T);
-  ok("stats count one user", stats.data.users === 1 && stats.data.active === 1, stats.data);
+  // ---------- stats, and ledger isolation between clients ----------
+  const stats = await call("/api/client/stats", "GET", null, T);
+  ok("stats count the client's campaigns", stats.data.campaigns === 1 && stats.data.recipients === 1, stats.data);
+  ok("stats count accepted messages", stats.data.sent === 1, stats.data);
   ok("stats total purchased credits", stats.data.creditsPurchased === 250, stats.data);
-  ok("stats total used credits", stats.data.creditsUsedReseller === 1, stats.data);
+  ok("stats total used credits", stats.data.creditsUsed === 1, stats.data);
   ok("stats report the live balance", stats.data.creditsAvailable === 249, stats.data);
 
-  const res2 = await call("/api/auth/register", "POST", { name: "Seller Two", email: `s2@${s}`, password: "secret123", role: "reseller", signupCode: SIGNUP });
+  const res2 = await call("/api/auth/register", "POST", { name: "Client Two", email: `s2@${s}`, password: "secret123", signupCode: SIGNUP });
   const T2 = res2.data.token;
-  const ledger2 = await call("/api/reseller/txns", "GET", null, T2);
-  ok("a reseller cannot see another reseller's ledger", ledger2.data.length === 0, ledger2.data);
-  const grant = await call("/api/admin/resellers/" + res2.data.user.id + "/credits", "POST", { amount: 10 }, A);
-  ok("a manual grant credits the reseller", grant.status === 200 && grant.data.credits === 10, grant.data);
-  const ledger2b = await call("/api/reseller/txns", "GET", null, T2);
-  ok("the manual grant lands in the reseller's own ledger", ledger2b.data.length === 1 && ledger2b.data[0].type === "assign_reseller", ledger2b.data);
+  const ledger2 = await call("/api/client/txns", "GET", null, T2);
+  ok("a client cannot see another client's ledger", ledger2.data.length === 0, ledger2.data);
+  const grant = await call("/api/admin/clients/" + res2.data.user.id + "/credits", "POST", { amount: 10 }, A);
+  ok("a manual grant credits the client", grant.status === 200 && grant.data.credits === 10, grant.data);
+  const ledger2b = await call("/api/client/txns", "GET", null, T2);
+  ok("the manual grant lands in the client's own ledger", ledger2b.data.length === 1 && ledger2b.data[0].type === "assign_reseller", ledger2b.data);
 
   // ---------- membership expiry blocks sending again ----------
   ok("membership expires in the future", Date.parse(me2.data.membership.expiresAt) > Date.now(), me2.data.membership);
 
   // ---------- UPI checkout: quote, then auto-settle on confirmation ----------
   const sellNow = 150; // the admin raised the sell price earlier in this run
-  const q1 = await call("/api/reseller/checkout/quote", "POST", { kind: "credits", credits: 100 }, T2);
+  const q1 = await call("/api/client/checkout/quote", "POST", { kind: "credits", credits: 100 }, T2);
   ok("a UPI quote prices the credits at the sell rate", q1.status === 200 && q1.data.amountPaise === 100 * sellNow, q1.data);
   ok("the quote carries a upi:// intent and a QR image",
     /^upi:\/\/pay\?/.test(q1.data.payment.uri || "") && /^data:image\/png;base64,/.test(q1.data.payment.qr || ""), q1.data.payment);
@@ -168,9 +166,9 @@ async function call(p, method, body, token) {
 
   const preQuote = await call("/api/me", "GET", null, T2);
   ok("a quote does not move any credits", preQuote.data.credits === 10, preQuote.data.credits);
-  const pay1 = await call("/api/reseller/checkout/pay", "POST", { kind: "credits", credits: 100, ref: "UTR123" }, T2);
-  ok("paying credits the reseller instantly", pay1.status === 200 && pay1.data.credits === 110, pay1.data);
-  const led2 = await call("/api/reseller/txns", "GET", null, T2);
+  const pay1 = await call("/api/client/checkout/pay", "POST", { kind: "credits", credits: 100, ref: "UTR123" }, T2);
+  ok("paying credits the client instantly", pay1.status === 200 && pay1.data.credits === 110, pay1.data);
+  const led2 = await call("/api/client/txns", "GET", null, T2);
   const buyTxn = led2.data.find((t) => t.type === "purchase");
   ok("the UPI purchase is in the ledger at the sell price with its reference",
     buyTxn && buyTxn.credits === 100 && buyTxn.amountPaise === 100 * sellNow && /UTR123/.test(buyTxn.note), led2.data);
@@ -178,18 +176,18 @@ async function call(p, method, body, token) {
 
   const sell = (await call("/api/pricing", "GET", null, T2)).data;
   ok("pricing advertises UPI as configured", sell.payment && sell.payment.configured === true && sell.payment.provider === "upi", sell.payment);
-  const mq = await call("/api/reseller/checkout/quote", "POST", { kind: "membership", planId: sell.plans[0].id }, T2);
+  const mq = await call("/api/client/checkout/quote", "POST", { kind: "membership", planId: sell.plans[0].id }, T2);
   ok("a membership quote prices the plan", mq.status === 200 && mq.data.amountPaise === sell.plans[0].pricePaise, mq.data);
   const preMember = await call("/api/me", "GET", null, T2);
-  ok("reseller two still has no membership", !preMember.data.membership || preMember.data.membership.state === "none", preMember.data.membership);
-  const payM = await call("/api/reseller/checkout/pay", "POST", { kind: "membership", planId: sell.plans[0].id }, T2);
+  ok("client two still has no membership", !preMember.data.membership || preMember.data.membership.state === "none", preMember.data.membership);
+  const payM = await call("/api/client/checkout/pay", "POST", { kind: "membership", planId: sell.plans[0].id }, T2);
   ok("paying for a membership activates it", payM.status === 200 && payM.data.membership.state === "active", payM.data);
-  const hist2 = await call("/api/reseller/requests", "GET", null, T2);
+  const hist2 = await call("/api/client/requests", "GET", null, T2);
   ok("the UPI purchase shows in history as approved via UPI",
     hist2.data.some((r) => r.status === "approved" && r.method === "UPI" && r.decisionNote === "auto-settled via UPI"), hist2.data);
-  const badCo = await call("/api/reseller/checkout/pay", "POST", { kind: "membership", planId: 999999 }, T2);
+  const badCo = await call("/api/client/checkout/pay", "POST", { kind: "membership", planId: 999999 }, T2);
   ok("an unknown plan is refused (400)", badCo.status === 400, badCo.data);
-  const badCredits = await call("/api/reseller/checkout/pay", "POST", { kind: "credits", credits: 0 }, T2);
+  const badCredits = await call("/api/client/checkout/pay", "POST", { kind: "credits", credits: 0 }, T2);
   ok("a zero-credit checkout is refused (400)", badCredits.status === 400, badCredits.data);
 
   console.log("\n" + pass + " passed, " + fail + " failed");

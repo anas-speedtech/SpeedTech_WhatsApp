@@ -15,62 +15,49 @@ const dom = new Map();
 const get = (sel) => { if (!dom.has(sel)) dom.set(sel, el(sel)); return dom.get(sel); };
 
 const AT = new Date("2026-09-20T10:00:00Z").toISOString();
-const USER = { id: 9, name: "Buyer", email: "b@x.com", role: "user", credits: 0, phone: "+919876543210", resellerId: 1, resellerCode: "K7M2PQ" };
-const RESELLER = { id: 1, name: "Atulya", email: "a@x.com", role: "reseller", credits: 6, phone: "", resellerId: null, resellerCode: "K7M2PQ" };
-const ADMIN = { id: 2, name: "SpeedTech Admin", email: "admin@speedtech.ai", role: "admin", credits: 0, phone: "", resellerId: null, resellerCode: null };
+const CLIENT = { id: 9, name: "Atulya", email: "a@x.com", role: "client", credits: 6, phone: "+919876543210",
+  membership: { state: "active", planId: 1, expiresAt: AT, startedAt: AT }, active: true, onboardedAt: AT };
+const ADMIN = { id: 2, name: "SpeedTech Admin", email: "admin@speedtech.ai", role: "admin", credits: 0, phone: "" };
 
-const PRODUCTS = [
-  { id: 1, resellerId: 1, name: "Starter Pack", description: "Entry tier", price: 250, image: "a.png" },
-  { id: 2, resellerId: 1, name: "Pro Pack", description: "", price: 750, image: "" },
-];
-const ORDERS = [
-  { id: 1, userId: 9, resellerId: 1, productId: 1, productName: "Starter Pack", amount: 250, status: "pending", at: AT },
-  { id: 2, userId: 8, resellerId: 1, productId: 2, productName: "Pro Pack", amount: 750, status: "fulfilled", at: AT },
-  { id: 3, userId: 9, resellerId: 1, productId: 1, productName: "Starter Pack", amount: 250, status: "cancelled", at: AT },
-  { id: 4, userId: 1, resellerId: 1, productId: 2, productName: "Reseller's own buy", amount: 500, status: "fulfilled", at: AT },
+const CONTACTS = [
+  { id: 1, name: "Asha", phone: "+919876543210", at: AT },
+  { id: 2, name: "", phone: "+919812345678", at: AT },
 ];
 const CAMPAIGNS = [
-  { id: 1, resellerId: 1, name: "Diwali sale", templateName: "demo_template", total: 3, delivered: 3, failed: 0, status: "Simulated", at: AT },
-  { id: 2, resellerId: 1, name: "New year", templateName: "helo_shape", total: 1, delivered: 1, failed: 0, status: "Simulated", at: AT },
+  { id: 1, clientId: 9, name: "Diwali sale", templateName: "demo_template", total: 3, delivered: 3, failed: 0, status: "Simulated", at: AT },
+  { id: 2, clientId: 9, name: "New year", templateName: "helo_shape", total: 1, delivered: 1, failed: 0, status: "Simulated", at: AT },
 ];
 
-let ME = USER;
+let ME = CLIENT;
 const RESPONSES = {
   "/api/config": { brand: "TestBrand", heloConnected: false },
   "/api/me": () => ME,
-  "/api/products": PRODUCTS,
-  // mirrors the real endpoint: a buyer sees only their own orders, a reseller their
-  // own store's, and the admin everything.
-  "/api/orders": () => (ME.role === "admin" ? ORDERS
-    : ME.role === "reseller" ? ORDERS.filter((o) => o.resellerId === ME.id) : ORDERS.filter((o) => o.userId === ME.id)),
+  "/api/client/stats": { contacts: 2, campaigns: 2, recipients: 4, sent: 4, creditsPurchased: 10, creditsAssigned: 0, creditsUsed: 4, creditsAvailable: 6 },
+  "/api/client/contacts": CONTACTS,
   "/api/campaigns": CAMPAIGNS,
   "/api/templates": [{ name: "demo_template", status: "SIMULATED" }, { templateName: "helo_shape", status_name: "APPROVED" }, { id: "raw_id" }],
   "/api/templates/custom": [{ id: 7, name: "my_hand_template", category: "MARKETING", language: "en", custom: true, status: "MANUAL", at: AT }],
-  "/api/reseller/users": [
-    { id: 9, name: "Buyer", email: "b@x.com", role: "user", phone: "+919876543210", credits: 0, active: true, onboardedAt: AT },
-    { id: 8, name: "No Phone", email: "n@x.com", role: "user", phone: "", credits: 0, active: false, onboardedAt: AT },
-  ],
-  "/api/reseller/stats": { users: 2, active: 1, inactive: 1, creditsPurchased: 10, creditsAssignedReseller: 0,
-    creditsAssignedUser: 0, creditsUsedReseller: 4, creditsUsedUser: 0, creditsAvailable: 6 },
-  "/api/reseller/requests": [
+  "/api/pricing": { creditSellPricePaise: 100, plans: [{ id: 1, name: "Starter", months: 1, pricePaise: 149900 }] },
+  "/api/client/requests": [
     { id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending" },
   ],
-  "/api/reseller/txns": [
-    { id: 1, at: AT, type: "purchase", fromId: 2, toId: 1, credits: 10, amountPaise: 1000, note: "approved" },
+  "/api/client/txns": [
+    { id: 1, at: AT, type: "purchase", fromId: null, toId: 9, credits: 10, amountPaise: 1000, note: "approved" },
   ],
-  "/api/pricing": { creditSellPricePaise: 100, plans: [{ id: 1, name: "Starter", months: 1, pricePaise: 149900 }] },
+  "/api/admin/clients": [
+    { id: 1, name: "Atulya", email: "a@x.com", role: "client", phone: "+919876543210", credits: 6, contacts: 2, campaigns: 2,
+      creditsPurchased: 5, creditsAssigned: 1, creditsUsed: 4, revenuePaise: 2000, membership: { state: "active", expiresAt: AT }, active: true },
+    { id: 3, name: "Rival", email: "r@x.com", role: "client", phone: "", credits: 0, contacts: 0, campaigns: 0,
+      creditsPurchased: 0, creditsAssigned: 0, creditsUsed: 0, revenuePaise: 0, membership: { state: "none" }, active: false },
+  ],
   "/api/admin/requests": [
     { id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending",
-      reseller: { id: 1, name: "Atulya", email: "a@x.com" }, plan: null },
+      client: { id: 1, name: "Atulya", email: "a@x.com" }, plan: null },
   ],
   "/api/admin/settings": { creditBuyPricePaise: 90, creditSellPricePaise: 100, requireMembership: true,
     plans: [{ id: 1, name: "Starter", months: 1, pricePaise: 149900 }] },
-  "/api/admin/resellers": [
-    { id: 1, name: "Atulya", email: "a@x.com", role: "reseller", credits: 6, resellerCode: "K7M2PQ", customers: 2, campaigns: 2,
-      creditsPurchased: 5, creditsAssigned: 1, creditsUsed: 4, revenue: 2000, membership: { state: "active", expiresAt: AT }, active: true },
-    { id: 3, name: "Rival", email: "r@x.com", role: "reseller", credits: 0, resellerCode: "B4N8XT", customers: 0, campaigns: 0,
-      creditsPurchased: 0, creditsAssigned: 0, creditsUsed: 0, revenue: 0, membership: { state: "none" }, active: false },
-  ],
+  "/api/helo/status": { ok: true, baseUrl: "http://x", from: "919876543210", approved: 1, templateCount: 1,
+    wabas: [{ whatsappBusinessId: "222", isActive: true, name: "Stub" }] },
 };
 
 const sandbox = {
@@ -118,122 +105,48 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   let pass = 0, fail = 0;
   const check = (n, c, e) => { c ? pass++ : fail++; console.log((c ? "PASS " : "FAIL ") + n + (c ? "" : " -> " + (typeof e === "string" ? e.slice(0, 160) : JSON.stringify(e)))); };
   const labels = (role) => t.navEntries(role).map((e) => e.label);
-  const groupOf = (role, l) => { const e = t.navEntries(role).find((x) => x.label === l); return e && e.parent; };
   const topOf = (role) => t.NAV[role].map((s) => s.label);
 
   check("boot rendered", Boolean(t.view()), "empty");
-  check("brand applied", document_title(t) === "TestBrand" || sandbox.document.title === "TestBrand", sandbox.document.title);
+  check("brand applied", sandbox.document.title === "TestBrand", sandbox.document.title);
 
-  // ---------------- buyer ----------------
-  check("buyer nav pages are exactly Dashboard/Products/Orders/Templates/Shortlinks/Settings",
-    JSON.stringify(labels("user")) === JSON.stringify(["Dashboard", "Products", "Orders", "Templates", "Shortlinks", "Settings"]), labels("user").join(", "));
-  check("buyer top level is Dashboard/Store/Orders/Templates/Shortlinks/Settings",
-    JSON.stringify(topOf("user")) === JSON.stringify(["Dashboard", "Store", "Orders", "Templates", "Shortlinks", "Settings"]), topOf("user").join(", "));
-  check("buyer Products slides under Store", groupOf("user", "Products") === "Store" && t.navEntries("user")[1].isChild === true, groupOf("user", "Products"));
-  for (const gone of ["Broadcast", "Resellers", "Campaigns", "Customers", "Governance", "Analyse", "Reports", "Developers", "Buy credits", "Wallet"])
-    check("buyer nav has no " + gone, !labels("user").includes(gone) && !topOf("user").includes(gone), labels("user").join(", "));
-  check("buyer credit box is hidden", t.creditHidden(), "visible");
-  check("buyer is labelled Buyer", /Buyer/.test(t.roleLabel()), t.roleLabel());
+  // ---------------- client ----------------
+  check("client nav is exactly Dashboard/Campaigns/Contacts/Wallet/Templates/Shortlinks/Settings/Developers",
+    JSON.stringify(labels("client")) === JSON.stringify(["Dashboard", "Campaigns", "Contacts", "Wallet", "Templates", "Shortlinks", "Settings", "Developers"]), labels("client").join(", "));
+  check("client nav is flat (no collapsible sections)",
+    topOf("client").every((l) => !t.NAV.client.find((s) => s.label === l && s.children)), topOf("client").join(", "));
+  check("client credit box is visible", !t.creditHidden(), "hidden");
+  check("client credit count shown", t.creditBox().textContent === "6 credits", t.creditBox().textContent);
+  check("client is labelled Client", /^Client$/i.test(t.roleLabel()), t.roleLabel());
+  for (const gone of ["Products", "Orders", "Store", "Customers", "Resellers", "Broadcast", "Analyse", "Governance"])
+    check("client nav has no " + gone, !labels("client").includes(gone) && !topOf("client").includes(gone), labels("client").join(", "));
 
   const dash = t.view();
-  check("buyer dashboard counts products", /<b>2<\/b><span>Products available/.test(dash), dash.slice(0, 200));
-  check("buyer dashboard shows total spent (250)", /<b>₹250<\/b>/.test(dash), dash.slice(0, 200));
-  check("buyer dashboard shows reseller code", /K7M2PQ/.test(dash), dash.slice(0, 200));
-  check("buyer dashboard never says Campaign credits", !/Campaign credits/.test(dash), dash.slice(0, 200));
+  check("client dashboard shows wallet credits", /<b>6<\/b><span>Wallet credits/.test(dash), dash.slice(0, 300));
+  check("client dashboard shows credits used", /<b>4<\/b><span>Credits used/.test(dash), dash.slice(0, 300));
+  check("client dashboard shows credits bought", /<b>10<\/b><span>Credits bought/.test(dash), dash.slice(0, 300));
+  check("client dashboard counts campaigns", /<b>2<\/b><span>Campaigns sent/.test(dash), dash.slice(0, 400));
+  check("client dashboard counts messages", /<b>4<\/b><span>Messages sent/.test(dash), dash.slice(0, 400));
+  check("client dashboard counts contacts", /<b>2<\/b><span>Contacts/.test(dash), dash.slice(0, 400));
+  check("client dashboard lists recent campaigns", /Recent campaigns/.test(dash) && /Diwali sale/.test(dash), dash.slice(0, 700));
+  check("client dashboard never says Total users", !/Total users/.test(dash), dash.slice(0, 200));
 
-  t.go("Products"); await wait();
-  const shop = t.view();
-  check("shop renders product names", /Starter Pack/.test(shop) && /Pro Pack/.test(shop), shop.slice(0, 200));
-  check("shop renders prices", /₹250/.test(shop) && /₹750/.test(shop), shop.slice(0, 200));
-  check("shop renders an order button per product", (shop.match(/data-buy=/g) || []).length === 2, shop);
-  check("only the product with an image gets an img tag", (shop.match(/<img /g) || []).length === 1, shop);
-
-  t.go("Orders"); await wait();
-  const mine = t.view();
-  check("buyer order history heading", /Order history/.test(mine), mine.slice(0, 120));
-  check("buyer sees their own orders", /Order #1/.test(mine) && /Order #3/.test(mine), mine.slice(0, 200));
-  check("buyer has no Fulfil button", !/data-fulfil=/.test(mine), mine.slice(0, 200));
-  check("cancelled order is tagged", /class="tag cancelled"/.test(mine), mine.slice(0, 200));
-  check("status is escaped, not injected", !/class="tag pending">pending/.test(mine) || true, "");
-
-  t.go("Settings"); await wait();
-  const set = t.view();
-  check("buyer settings expose a phone field", /id="s-phone"/.test(set) && /\+919876543210/.test(set), set.slice(0, 200));
-  check("buyer settings show the reseller code", /K7M2PQ/.test(set), set.slice(0, 200));
-
-  for (const l of labels("user")) {
-    errors.length = 0;
-    try { t.go(l); await wait(); await t.run(l); check("buyer page renders: " + l, t.view().length > 40 && !errors.length, errors.join("; ") || t.view().slice(0, 80)); }
-    catch (e) { check("buyer page renders: " + l, false, e.message); }
-  }
-
-  // ---------------- reseller (re-boot so credits + role label go through boot()) ----------------
-  ME = RESELLER; await t.boot(); await wait();
-  check("reseller credit box is visible", !t.creditHidden(), "hidden");
-  check("reseller credit count shown", t.creditBox().textContent === "6 credits", t.creditBox().textContent);
-  check("reseller labelled with code", /Reseller · code K7M2PQ/.test(t.roleLabel()), t.roleLabel());
-  const rDash = t.view();
-  check("reseller dashboard counts total users", /<b>2<\/b><span>Total users/.test(rDash), rDash.slice(0, 300));
-  check("reseller dashboard counts active users", /<b>1<\/b><span>Active users/.test(rDash), rDash.slice(0, 300));
-  check("reseller dashboard counts inactive users", /<b>1<\/b><span>Inactive users/.test(rDash), rDash.slice(0, 300));
-  check("reseller dashboard shows wallet credits", /<b>6<\/b><span>Wallet credits/.test(rDash), rDash.slice(0, 300));
-  check("reseller dashboard counts campaigns sent", /<b>2<\/b><span>Campaigns sent/.test(rDash), rDash.slice(0, 500));
-  check("reseller dashboard sums recipients reached (4)", /<b>4<\/b><span>Recipients reached/.test(rDash), rDash.slice(0, 500));
-  check("reseller dashboard shows order revenue (₹1,500)", /₹1,500/.test(rDash), rDash.slice(0, 500));
-  check("reseller dashboard flags a waiting order", /1 order waiting/.test(rDash), rDash.slice(0, 500));
-  check("reseller dashboard lists recent campaigns", /Recent campaigns/.test(rDash) && /Diwali sale/.test(rDash), rDash.slice(0, 700));
-  check("reseller dashboard renders the WhatsApp user table", /id="u-table"/.test(rDash) && /Buyer/.test(t.inner("#u-table")), t.inner("#u-table").slice(0, 200));
-  check("reseller user table marks an inactive user", /Inactive/.test(t.inner("#u-table")), t.inner("#u-table").slice(0, 200));
-
-  const rLabels = labels("reseller");
-  // Broadcast and Analyse are now sections rather than pages, so they are checked at the top level
-  for (const want of ["Dashboard", "Products", "Customers", "Orders", "Wallet", "Campaigns", "Governance", "Reports", "Templates", "Shortlinks", "Settings", "Developers"])
-    check("reseller nav has " + want, rLabels.includes(want), rLabels.join(", "));
-  for (const want of ["Broadcast", "Analyse", "Store"])
-    check("reseller top level has " + want, topOf("reseller").includes(want), topOf("reseller").join(", "));
-  check("reseller top level is Broadcast/Analyse/Store/Orders/Wallet/Templates/Shortlinks/Settings/Developers",
-    JSON.stringify(topOf("reseller")) === JSON.stringify(["Broadcast", "Analyse", "Store", "Orders", "Wallet", "Templates", "Shortlinks", "Settings", "Developers"]), topOf("reseller").join(", "));
-  check("reseller sections slide open by default", t.NAV.reseller.filter((s) => s.children).every((s) => s.children.length >= 2), "expected 2+ children per section");
-  check("Products sits under the Store section", groupOf("reseller", "Products") === "Store", groupOf("reseller", "Products"));
-  check("Customers sits under the Store section", groupOf("reseller", "Customers") === "Store", groupOf("reseller", "Customers"));
-  check("Campaigns sits under the Broadcast section", groupOf("reseller", "Campaigns") === "Broadcast", groupOf("reseller", "Campaigns"));
-  check("Governance sits under the Broadcast section", groupOf("reseller", "Governance") === "Broadcast", groupOf("reseller", "Governance"));
-  check("Dashboard sits under the Analyse section", groupOf("reseller", "Dashboard") === "Analyse", groupOf("reseller", "Dashboard"));
-  check("Reports sits under the Analyse section", groupOf("reseller", "Reports") === "Analyse", groupOf("reseller", "Reports"));
-  check("standalone Orders has no parent section", groupOf("reseller", "Orders") === "Orders", groupOf("reseller", "Orders"));
-  check("reseller has no Resellers page", !rLabels.includes("Resellers"), rLabels.join(", "));
-  check("every reseller section has an icon", t.NAV.reseller.every((s) => typeof s.icon === "string" && s.icon), JSON.stringify(t.NAV.reseller.map((s) => s.icon)));
-  check("sidebar icons render real svg paths", /<svg class="ico" viewBox="0 0 20 20"[^>]*><path d="M10 6\.5625/.test(t.sideIcon("broadcast")), t.sideIcon("broadcast").slice(0, 90));
-  check("every nav icon name exists in the icon set", t.NAV.reseller.concat(t.NAV.user, t.NAV.admin).every((s) => t.sideIcon(s.icon).indexOf("<path") > 0), "missing icon");
-
-  t.go("Products"); await wait();
-  const cat = t.view();
-  check("catalogue lists own products", /Starter Pack/.test(cat) && /Pro Pack/.test(cat), cat.slice(0, 200));
-  check("catalogue has edit and delete per product", (cat.match(/data-edit=/g) || []).length === 2 && (cat.match(/data-del=/g) || []).length === 2, cat);
-  check("catalogue offers an image upload", /type="file"/.test(cat) && /accept="image\/\*"/.test(cat), cat.slice(0, 200));
-  check("catalogue price input is numeric", /id="p-price" type="number" min="0"/.test(cat), cat.slice(0, 200));
-
-  t.go("Customers"); await wait();
-  const cust = t.inner("#cu-table");
-  check("customers page shows buyer name", /Buyer/.test(cust), cust.slice(0, 200));
-  check("customer without a phone is marked", /No Phone/.test(cust) && /no phone/i.test(cust), cust.slice(0, 300));
-  check("customer table marks an inactive user", /Inactive/.test(cust), cust.slice(0, 300));
-
-  t.go("Orders"); await wait();
-  const inc = t.view();
-  check("incoming heading", /Orders from your customers/.test(inc), inc.slice(0, 120));
-  check("incoming hides the reseller's own legacy order", !/Order #4/.test(inc), inc.slice(0, 260));
-  check("incoming shows customer orders", /Order #1/.test(inc) && /Order #2/.test(inc) && /Order #3/.test(inc), inc.slice(0, 260));
-  check("incoming offers Fulfil only on the pending order", (inc.match(/data-fulfil=/g) || []).length === 1 && /data-fulfil="1"/.test(inc), inc);
+  t.go("Contacts"); await wait();
+  const ct = t.view();
+  check("contacts page has an add form", /id="ct-name"/.test(ct) && /id="ct-phone"/.test(ct) && /id="ct-add"[^>]*>Add contact/.test(ct), ct.slice(0, 300));
+  check("contacts page lists contacts", /Asha/.test(ct) && /Unnamed/.test(ct), ct.slice(0, 300));
+  check("contacts page has a delete per contact", (ct.match(/data-del=/g) || []).length === 2, ct.slice(0, 400));
+  check("contacts page escapes nothing raw", !/undefined/.test(ct), ct.slice(0, 300));
 
   t.go("Campaigns"); await wait();
   const camp = t.view();
-  check("campaigns page renders the picker", /id="c-name"/.test(camp) && /pick-row/.test(camp), camp.slice(0, 200));
-  check("campaign page offers only approved/simulated templates", /demo_template/.test(camp) && /helo_shape/.test(camp) && !/raw_id/.test(camp), camp.slice(0, 400));
-  check("campaign page includes a hand-added template", /my_hand_template/.test(camp), camp.slice(0, 400));
+  check("campaigns page renders the builder", /id="c-name"/.test(camp) && /id="c-tpl"/.test(camp) && /id="c-go"/.test(camp), camp.slice(0, 300));
+  check("campaigns page lists saved contacts to pick", /pick-row/.test(camp) && /Asha/.test(camp), camp.slice(0, 600));
+  check("campaigns page offers a numbers textarea", /id="c-numbers"/.test(camp), camp.slice(0, 500));
+  check("campaign page offers only approved/simulated templates", /demo_template/.test(camp) && /helo_shape/.test(camp) && !/raw_id/.test(camp), camp.slice(0, 500));
+  check("campaign page includes a hand-added template", /my_hand_template/.test(camp), camp.slice(0, 500));
   check("campaign page has no undefined option", !/>undefined</.test(camp), camp.slice(0, 300));
-  check("campaign page shows the credit cost", /credit/i.test(camp), camp.slice(0, 300));
-  check("campaign page offers body variables", /id="c-v1"/.test(camp) && /id="c-v2"/.test(camp), camp.slice(0, 400));
+  check("campaign page shows the credit cost", /id="c-cost"/.test(camp) && /credit/i.test(camp), camp.slice(0, 300));
 
   t.go("Templates"); await wait(30);
   const tpl = t.view();
@@ -248,61 +161,67 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   const wal = t.view();
   check("wallet shows the sell price per credit", /₹1\.00/.test(wal), wal.slice(0, 300));
   check("wallet shows a price calculator", /id="w-qty"/.test(wal) && /id="w-cost"/.test(wal), wal.slice(0, 300));
-  check("wallet lists membership plans", /Starter/.test(wal) && /data-plan="1"/.test(wal), wal.slice(0, 400));
-  check("wallet shows payment history", /100 credits/.test(wal) && /pending/.test(wal), wal.slice(0, 400));
-  check("wallet offers a Buy credits button", /id="w-buy"[^>]*>Buy credits</.test(wal), wal.slice(0, 400));
-  check("wallet no longer says Request credits", !/Request credits/.test(wal), wal.slice(0, 400));
-  check("wallet plan buttons read Buy", (wal.match(/data-plan="1"[^>]*>Buy</g) || []).length === 1, wal.slice(0, 500));
+  check("wallet lists membership plans", /Starter/.test(wal) && /data-plan="1"/.test(wal), wal.slice(0, 500));
+  check("wallet shows payment history", /100 credits/.test(wal) && /pending/.test(wal), wal.slice(0, 500));
+  check("wallet offers a Buy credits button", /id="w-buy"[^>]*>Buy credits</.test(wal), wal.slice(0, 500));
+  check("wallet no longer says Request credits", !/Request credits/.test(wal), wal.slice(0, 500));
+  check("wallet shows the credit ledger", /Credit ledger/.test(wal) && /approved/.test(wal), wal.slice(0, 700));
 
   t.go("Settings"); await wait();
-  const rSet = t.view();
-  check("reseller settings have no phone field", !/id="s-phone"/.test(rSet), rSet.slice(0, 200));
-  check("reseller settings allow changing the code", /id="s-code"/.test(rSet) && /K7M2PQ/.test(rSet), rSet.slice(0, 200));
+  const cSet = t.view();
+  check("client settings expose a sender-number field", /id="s-phone"/.test(cSet) && /\+919876543210/.test(cSet), cSet.slice(0, 300));
+  check("client settings show the membership", /membership/i.test(cSet) && /Active until/.test(cSet), cSet.slice(0, 400));
 
-  for (const l of rLabels) {
+  t.go("Developers"); await wait();
+  const dev = t.view();
+  check("developers page documents the client API", /\/api\/client\/contacts/.test(dev) && /\/api\/admin\/clients/.test(dev), dev.slice(0, 800));
+  check("developers page reports simulated mode for a disconnected Helo", /Simulated/.test(dev), dev.slice(0, 400));
+
+  for (const l of labels("client")) {
     errors.length = 0;
-    try { t.go(l); await wait(); await t.run(l); check("reseller page renders: " + l, t.view().length > 40 && !errors.length, errors.join("; ") || t.view().slice(0, 80)); }
-    catch (e) { check("reseller page renders: " + l, false, e.message); }
+    try { t.go(l); await wait(); await t.run(l); check("client page renders: " + l, t.view().length > 40 && !errors.length, errors.join("; ") || t.view().slice(0, 80)); }
+    catch (e) { check("client page renders: " + l, false, e.message); }
   }
 
   // ---------------- admin ----------------
   ME = ADMIN; await t.boot(); await wait();
-  check("admin nav is exactly Dashboard/Resellers/Orders/Payments/Pricing/Settings",
-    JSON.stringify(labels("admin")) === JSON.stringify(["Dashboard", "Resellers", "Orders", "Payments", "Pricing", "Settings"]), labels("admin").join(", "));
+  check("admin nav is exactly Dashboard/Clients/Payments/Pricing/Settings",
+    JSON.stringify(labels("admin")) === JSON.stringify(["Dashboard", "Clients", "Payments", "Pricing", "Settings"]), labels("admin").join(", "));
   check("admin nav has no collapsible sections", topOf("admin").every((l) => !t.NAV.admin.find((s) => s.label === l && s.children)), topOf("admin").join(", "));
   check("admin credit box is hidden", t.creditHidden(), "visible");
   check("admin is labelled Platform owner", /Platform owner/.test(t.roleLabel()), t.roleLabel());
   const aDash = t.view();
-  check("admin dashboard counts resellers", /<b>2<\/b><span>Resellers/.test(aDash), aDash.slice(0, 200));
-  check("admin dashboard sums buyers (2+0)", /<b>2<\/b><span>Buyers signed up/.test(aDash), aDash.slice(0, 200));
-  check("admin dashboard counts active orders (3 of 4)", /<b>3<\/b><span>Orders placed/.test(aDash), aDash.slice(0, 200));
-  check("admin dashboard shows reseller balances", /K7M2PQ|B4N8XT/.test(aDash) || /Atulya/.test(aDash), aDash.slice(0, 300));
+  check("admin dashboard counts clients", /<b>2<\/b><span>Clients/.test(aDash), aDash.slice(0, 300));
+  check("admin dashboard sums campaigns run", /<b>2<\/b><span>Campaigns run/.test(aDash), aDash.slice(0, 300));
+  check("admin dashboard sums credits held", /<b>6<\/b><span>Credits held/.test(aDash), aDash.slice(0, 300));
+  check("admin dashboard shows client balances", /Atulya/.test(aDash), aDash.slice(0, 400));
 
-  t.go("Resellers"); await wait();
+  t.go("Clients"); await wait();
   const rl = t.inner("#r-list");
-  check("resellers page lists accounts", /Atulya/.test(rl) && /Rival/.test(rl), rl.slice(0, 200));
-  check("resellers page shows credits", /6 credits/.test(rl) || /data-add="1"/.test(rl), rl.slice(0, 300));
-  check("resellers page has grant and remove controls", /data-add="1"/.test(rl) && /data-sub="1"/.test(rl), rl.slice(0, 300));
-  check("resellers page has a credit amount input", /id="amt-1"/.test(rl) && /class="mini"/.test(rl), rl.slice(0, 300));
-  check("resellers page shows membership and usage", /Active/.test(rl) && /used/.test(rl), rl.slice(0, 400));
-  check("resellers page has an error target", /id="p-err"/.test(t.view()), t.view().slice(0, 120));
+  check("clients page lists accounts", /Atulya/.test(rl) && /Rival/.test(rl), rl.slice(0, 300));
+  check("clients page shows credits", /6 credits/.test(rl) || /data-add="1"/.test(rl), rl.slice(0, 400));
+  check("clients page has grant and remove controls", /data-add="1"/.test(rl) && /data-sub="1"/.test(rl), rl.slice(0, 400));
+  check("clients page has a credit amount input", /id="amt-1"/.test(rl) && /class="mini"/.test(rl), rl.slice(0, 400));
+  check("clients page shows membership and usage", /Active/.test(rl) && /used/.test(rl), rl.slice(0, 500));
+  check("clients page has an error target", /id="p-err"/.test(t.view()), t.view().slice(0, 120));
   check("admin has no product or campaign tabs", !labels("admin").some((l) => ["Products", "Campaigns", "Store", "Broadcast"].includes(l)), labels("admin").join(", "));
 
   t.go("Payments"); await wait();
   const pay = t.view();
-  check("payments page lists a pending request", /Atulya/.test(pay) && /100 credits/.test(pay), pay.slice(0, 300));
-  check("payments page offers approve and reject", /data-ok="5"/.test(pay) && /data-no="5"/.test(pay), pay.slice(0, 300));
+  check("payments page lists a pending request", /Atulya/.test(pay) && /100 credits/.test(pay), pay.slice(0, 400));
+  check("payments page offers approve and reject", /data-ok="5"/.test(pay) && /data-no="5"/.test(pay), pay.slice(0, 400));
 
   t.go("Pricing"); await wait();
   const pri = t.view();
-  check("pricing page shows buy and sell inputs", /id="pr-buy"/.test(pri) && /id="pr-sell"/.test(pri), pri.slice(0, 300));
-  check("pricing page lists plans with edit and delete", /Starter/.test(pri) && /data-pedit="1"/.test(pri) && /data-pdel="1"/.test(pri), pri.slice(0, 400));
+  check("pricing page shows buy and sell inputs", /id="pr-buy"/.test(pri) && /id="pr-sell"/.test(pri), pri.slice(0, 400));
+  check("pricing page lists plans with edit and delete", /Starter/.test(pri) && /data-pedit="1"/.test(pri) && /data-pdel="1"/.test(pri), pri.slice(0, 500));
 
-  t.go("Orders"); await wait();
-  const all = t.view();
-  check("admin sees all orders heading", /All orders/.test(all), all.slice(0, 120));
-  check("admin sees the cancelled order too", /Order #3/.test(all), all.slice(0, 220));
-  check("admin has no Fulfil button", !/data-fulfil=/.test(all), all.slice(0, 220));
+  t.go("Settings"); await wait();
+  const aSet = t.view();
+  check("admin settings explain the admin account", /Admin account/.test(aSet), aSet.slice(0, 300));
+  check("admin settings have no sender-number field", !/id="s-phone"/.test(aSet), aSet.slice(0, 300));
+
+  check("every admin nav icon exists in the icon set", t.NAV.admin.concat(t.NAV.client).every((s) => t.sideIcon(s.icon).indexOf("<path") > 0), "missing icon");
 
   for (const l of labels("admin")) {
     errors.length = 0;
@@ -311,15 +230,12 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   }
 
   // ---------------- escaping ----------------
-  RESPONSES["/api/products"] = [{ id: 9, resellerId: 1, name: '<img src=x onerror="boom()">', description: "", price: 1, image: '"onload="x' }];
-  ME = USER; await t.boot(); await wait(); t.go("Products"); await wait();
+  RESPONSES["/api/client/contacts"] = [{ id: 9, name: '<img src=x onerror="boom()">', phone: "+919876543210", at: AT }];
+  ME = CLIENT; await t.boot(); await wait(); t.go("Contacts"); await wait();
   const xss = t.view();
-  check("product name is HTML-escaped", !/onerror="boom\(\)"/.test(xss) && /&lt;img/.test(xss), xss.slice(0, 200));
-  check("image attribute is HTML-escaped", !/onload="x/.test(xss) && /&quot;onload=&quot;x/.test(xss), xss.slice(0, 300));
-  RESPONSES["/api/products"] = PRODUCTS;
+  check("contact name is HTML-escaped", !/onerror="boom\(\)"/.test(xss) && /&lt;img/.test(xss), xss.slice(0, 300));
+  RESPONSES["/api/client/contacts"] = CONTACTS;
 
   console.log("\n" + pass + " passed, " + fail + " failed");
   process.exit(fail ? 1 : 0);
 })();
-
-function document_title() { return sandbox.document.title; }
