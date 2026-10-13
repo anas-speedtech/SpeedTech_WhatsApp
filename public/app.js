@@ -64,7 +64,7 @@ const NAV = {
     { label: "Wallet", icon: "wallet", fn: wallet },
     { label: "Templates", icon: "templates", fn: templates },
     { label: "Shortlinks", icon: "shortlinks", fn: coming("Shortlinks", "Tracked links you can drop into a template to measure clicks. Not built yet (TODO 4).") },
-    { label: "WhatsApp", icon: "broadcast", fn: clientWhatsapp },
+    { label: "WhatsApp", icon: "whatsapp", fn: clientWhatsapp },
     { label: "Settings", icon: "settings", fn: settings },
     { label: "Developers", icon: "developers", fn: developers },
   ],
@@ -76,7 +76,7 @@ const NAV = {
     ] },
     { label: "Payments", icon: "payments", fn: payments },
     { label: "Pricing", icon: "settings", fn: pricing },
-    { label: "WhatsApp", icon: "broadcast", fn: adminWhatsapp },
+    { label: "WhatsApp", icon: "whatsapp", fn: adminWhatsapp },
     { label: "Settings", icon: "settings", fn: settings },
   ],
 };
