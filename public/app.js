@@ -559,7 +559,7 @@ async function clients() {
 async function userWallet() {
   const rs = await api("/admin/clients");
   $("#view").innerHTML = `<div class="panel"><h3>User wallet</h3>
-    <p class="empty">Pick a client to see their balance, credit ledger and payment history, and to top up or remove credits.</p>
+    <p class="empty">Pick a client to see their balance, credit ledger and payment history, to top up or remove credits, and to add their WhatsApp templates.</p>
     <div class="row"><select id="uw-client">${rs.length ? rs.map((r) => `<option value="${r.id}">${esc(r.name)} — ${esc(r.email)}</option>`).join("") : `<option value="">No clients yet</option>`}</select></div>
     <div id="uw-body"></div>
     <p id="p-err" class="err"></p></div>`;
@@ -590,7 +590,16 @@ async function userWallet() {
       <div class="panel"><h3>Payment history</h3>${list(w.requests, (r) => `<div class="item">
         <div><strong>${r.kind === "credits" ? r.credits + " credits" : (r.plan ? esc(r.plan.name) + " membership" : "Membership")}</strong>
           <small>${new Date(r.at).toLocaleString()} · ${rupees(r.amountPaise)}${r.method ? " · " + esc(r.method) : ""}</small></div>
-        ${statusTag(r.status)}</div>`, "Nothing yet.")}</div>`;
+        ${statusTag(r.status)}</div>`, "Nothing yet.")}</div>
+      <div class="panel"><h3>Templates</h3>
+        <p class="empty">Templates you add here are available to ${esc(w.client.name)} when building a campaign.</p>
+        ${list(w.templates, (t) => `<div class="item"><div><strong>${tplName(t)}</strong>
+          <small>${esc(t.category)} · ${esc(t.language)}</small></div>
+          <button class="btn ghost danger" data-uwdel="${t.id}">Delete</button></div>`, "No templates yet.")}
+        <div class="row"><input id="uw-tname" placeholder="Template name, e.g. ismotors_client">
+          <select id="uw-tcat"><option>MARKETING</option><option>UTILITY</option><option>AUTHENTICATION</option></select>
+          <input id="uw-tlang" placeholder="Language" value="en"></div>
+        <p id="uw-terr" class="err"></p><button class="btn" id="uw-tadd">Add template</button></div>`;
     const grant = async (sign) => {
       const n = Number($("#uw-amt").value.trim());
       if (!Number.isInteger(n) || n === 0) { $("#p-err").textContent = "Enter a whole number first"; return; }
@@ -600,6 +609,18 @@ async function userWallet() {
     };
     $("#uw-add").onclick = () => grant(1);
     $("#uw-sub").onclick = () => grant(-1);
+    $("#uw-tadd").onclick = async () => {
+      $("#uw-terr").textContent = "";
+      const name = $("#uw-tname").value.trim();
+      if (!name) { $("#uw-terr").textContent = "Give the template a name."; return; }
+      try { await api("/admin/templates", "POST", { ownerId: +id, name, category: $("#uw-tcat").value, language: $("#uw-tlang").value }); toast("Template added"); load(); }
+      catch (e) { $("#uw-terr").textContent = e.message; }
+    };
+    document.querySelectorAll("[data-uwdel]").forEach((b) => (b.onclick = async () => {
+      if (!confirm("Delete this template?")) return;
+      try { await api("/admin/templates/" + b.dataset.uwdel, "DELETE"); toast("Template deleted"); load(); }
+      catch (e) { $("#uw-terr").textContent = e.message; }
+    }));
   };
   $("#uw-client").onchange = load;
   if (rs.length) await load();

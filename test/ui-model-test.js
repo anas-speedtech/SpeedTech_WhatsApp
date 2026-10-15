@@ -59,6 +59,7 @@ const RESPONSES = {
       contacts: 2, campaigns: 2, templates: 1, membership: { state: "active", expiresAt: AT }, active: true },
     txns: [{ id: 1, at: AT, type: "purchase", fromId: null, toId: 1, credits: 10, note: "approved" }],
     requests: [{ id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending", method: "upi" }],
+    templates: [{ id: 7, name: "my_hand_template", category: "MARKETING", language: "en", ownerId: 1 }],
   },
   "/api/admin/requests": [
     { id: 5, at: AT, kind: "credits", credits: 100, amountPaise: 10000, status: "pending",
@@ -231,6 +232,7 @@ const wait = (ms = 15) => new Promise((r) => setTimeout(r, ms));
   check("user wallet page lists clients to pick", /id="uw-client"/.test(uw) && /Atulya/.test(uw), uw.slice(0, 400));
   check("user wallet shows credit controls", /id="uw-add"/.test(t.inner("#uw-body")) && /id="uw-sub"/.test(t.inner("#uw-body")), t.inner("#uw-body").slice(0, 500));
   check("user wallet shows the ledger and payments", /Credit ledger/.test(t.inner("#uw-body")) && /Payment history/.test(t.inner("#uw-body")), t.inner("#uw-body").slice(0, 400));
+  check("user wallet can add and delete a template for the client", /id="uw-tname"/.test(t.inner("#uw-body")) && /id="uw-tadd"/.test(t.inner("#uw-body")) && /my_hand_template/.test(t.inner("#uw-body")) && /data-uwdel="7"/.test(t.inner("#uw-body")), t.inner("#uw-body").slice(0, 600));
 
   t.go("WhatsApp"); await wait();
   const awa = t.view();

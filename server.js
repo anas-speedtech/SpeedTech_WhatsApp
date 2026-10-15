@@ -383,6 +383,7 @@ app.get("/api/admin/clients/:id/wallet", auth("admin"), (req, res) => {
     client: publicUser(u), summary: adminClient(u),
     txns: db.txns.filter((t) => t.fromId === u.id || t.toId === u.id).reverse(),
     requests: db.requests.filter((r) => r.clientId === u.id).map(requestView).reverse(),
+    templates: db.templates.filter((t) => t.ownerId === u.id).map(adminTemplate),
   });
 });
 

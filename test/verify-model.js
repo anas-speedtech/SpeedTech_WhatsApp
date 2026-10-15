@@ -244,10 +244,15 @@ const reg = (b) => call("/api/auth/register", "POST", b);
   const walDenied = await call("/api/admin/clients/" + C1.id + "/wallet", "GET", null, T1);
   ok("a client cannot read the admin wallet view (403)", walDenied.status === 403, walDenied);
   const wal = await call("/api/admin/clients/" + C1.id + "/wallet", "GET", null, A);
-  ok("admin wallet returns balance, ledger and payments", wal.status === 200 && wal.data.client.id === C1.id
-    && Array.isArray(wal.data.txns) && Array.isArray(wal.data.requests) && typeof wal.data.summary.credits === "number", wal.data && Object.keys(wal.data));
+  ok("admin wallet returns balance, ledger, payments and templates", wal.status === 200 && wal.data.client.id === C1.id
+    && Array.isArray(wal.data.txns) && Array.isArray(wal.data.requests) && Array.isArray(wal.data.templates)
+    && typeof wal.data.summary.credits === "number", wal.data && Object.keys(wal.data));
   ok("admin wallet ledger records grants and campaign spends", wal.data.txns.length >= 2
     && wal.data.txns.some((t) => t.type === "spend"), wal.data.txns.length);
+  const wadd = await call("/api/admin/templates", "POST", { ownerId: C1.id, name: "wallet_tpl", category: "MARKETING" }, A);
+  const wal2 = await call("/api/admin/clients/" + C1.id + "/wallet", "GET", null, A);
+  ok("admin wallet surfaces the client's templates", wal2.data.templates.some((t) => t.id === wadd.data.id && t.name === "wallet_tpl"), wal2.data.templates);
+  await call("/api/admin/templates/" + wadd.data.id, "DELETE", null, A);
   const walMissing = await call("/api/admin/clients/999999/wallet", "GET", null, A);
   ok("wallet for a missing client is a 404", walMissing.status === 404, walMissing.data);
 
